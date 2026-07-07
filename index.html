@@ -119,7 +119,7 @@
 <div class="wrap">
   <header>
     <div class="eyebrow">Laser Kerf Bending · Torsional Link Model</div>
-    <h1>格狀鉸鏈設計推論系統<span class="en">LATTICE HINGE DESIGN CALCULATOR — Rev.B</span></h1>
+    <h1>格狀鉸鏈設計推論系統<span class="en">LATTICE HINGE DESIGN CALCULATOR — Rev.C</span></h1>
     <p class="sub">依據 Patrick Fenner（Deferred Procrastination, 2011–2012）的扭轉連桿模型：輸入材料與幾何參數，反推最少連桿數、彎折半徑與應力狀態，並產生可直接雷射切割的 SVG 檔。</p>
   </header>
 
@@ -177,6 +177,17 @@
           <input type="number" id="H" step="5" min="20" value="80">
         </div>
       </div>
+      <div class="row2">
+        <div>
+          <label><b>Auxetic 方塊邊長</b><span class="sym">a, mm</span></label>
+          <input type="number" id="auxA" step="1" min="3" value="8">
+        </div>
+        <div>
+          <label><b>Auxetic 鉸鏈寬</b><span class="sym">h, mm</span></label>
+          <input type="number" id="auxH" step="0.2" min="0.4" value="1.2">
+        </div>
+      </div>
+      <p class="hint">最後兩項僅「Auxetic 旋轉方塊」圖樣使用；h 越小越柔軟但越易斷，木板建議 ≥ 板厚的 1/3。</p>
     </section>
 
     <!-- ======= 結果與圖樣 ======= -->
@@ -200,6 +211,20 @@
         <div class="btnrow">
           <button class="act" id="dl">下載雷射切割 SVG</button>
           <button class="act ghost" id="dlAll">下載目前參數報告 (txt)</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <h2>變半徑設計器</h2>
+        <p class="patnote">拖曳藍色控制點畫出目標側面輪廓（座標單位 mm）。系統沿曲線累積彎角，每累積到單桿容許扭角 θ_max 就放置一列切線——<b>曲率大處切線自動加密、直線段不切</b>，把 Porterfield 的手工變形圖樣變成精確計算。</p>
+        <div class="preview" id="curveEd"></div>
+        <div class="results" id="varStats" style="margin-top:12px"></div>
+        <div id="varFlags"></div>
+        <p class="patnote" style="margin-top:12px">展開後的平面切割圖（切線間距依局部曲率漸變）：</p>
+        <div class="preview" id="varPreview"></div>
+        <div class="btnrow">
+          <button class="act" id="dlVar">下載變半徑切割 SVG</button>
+          <button class="act ghost" id="resetVar">重設曲線</button>
         </div>
       </div>
 
@@ -252,6 +277,10 @@ const PATTERNS = [
    note:"Porterfield 實測<b>最柔軟</b>的樣式，薄板甚至可沿對角線彎折（近似雙向）。扭轉＋彎曲混合、無封閉解析解，建議以有限元素或試片法定量。"},
   {id:"slot", name:"長孔／蜂巢（挖除式）",
    note:"挖除面積大，殘餘肋條以彎曲變形；適合 <b>5mm 以上厚板</b>，但彎折半徑較大、強度較低（Trotec Kerf 6 型）。"},
+  {id:"diag45", name:"斜向 45°（扭轉變體）",
+   note:"直線格狀旋轉 45°，彎軸方向跟著旋轉，適合<b>斜向摺線</b>造型。力學仍為扭轉主導，公式以沿彎軸法向的有效間距 (w+k)/cos45° 做角度分解後近似適用。"},
+  {id:"auxetic", name:"Auxetic 旋轉方塊（雙曲面）",
+   note:"拉脹結構：Poisson 比 ≈ −1、面內可伸縮，是做<b>球面、鞍面等雙曲面</b>的必要條件（一般格狀鉸鏈高斯曲率恆為零，只能彎成柱面）。線性伸展率 L(θ)/L₀ = cos(θ/2)+sin(θ/2)，方塊轉角 θ=90° 時達最大 √2（+41%）。剛性由角隅鉸鏈寬 h 控制，設計基準是鉸鏈的<b>彎曲應力</b>而非扭轉，h 請以試片決定。"},
 ];
 
 /* ================= 主計算 ================= */
@@ -262,9 +291,10 @@ let lastCalc = null;
 function calc(){
   const t=+$("t").value, w=+$("w").value, l=+$("l").value,
         k=+$("kerf").value, G=+$("G").value, tauY=+$("tau").value,
-        r=+$("ratio").value/100, ThetaDeg=+$("theta").value, H=+$("H").value;
+        r=+$("ratio").value/100, ThetaDeg=+$("theta").value, H=+$("H").value,
+        auxA=+$("auxA").value, auxH=+$("auxH").value;
   // 欄位清空或非法值時不計算，保留上一次有效結果
-  if(![t,w,l,k,G,tauY,ThetaDeg,H].every(v=>Number.isFinite(v)&&v>0)) return;
+  if(![t,w,l,k,G,tauY,ThetaDeg,H,auxA,auxH].every(v=>Number.isFinite(v)&&v>0)) return;
   const Theta=ThetaDeg*Math.PI/180;
   const tauA=tauY*r;
 
@@ -293,7 +323,7 @@ function calc(){
   const Rc = W/Theta;
   const Rin = Rc - t/2, Rout = Rc + t/2;
 
-  lastCalc={t,w,l,k,G,tauY,tauA,r,ThetaDeg,Theta,H,alpha,beta,
+  lastCalc={t,w,l,k,G,tauY,tauA,r,ThetaDeg,Theta,H,alpha,beta,auxA,auxH,
             thetaStress,nStress,thetaGeo,nGeo,n,thetaAct,tauAct,W,Rc,Rin,Rout};
   render();
 }
@@ -343,6 +373,7 @@ function render(){
       <span class="formula">R_center = W/Θ = ${fmt(c.Rc)} mm，R_in = ${fmt(c.Rin)}，R_out = ${fmt(c.Rout)} mm</span></div>`;
 
   drawPreview();
+  computeVar();
 }
 
 /* ================= SVG 圖樣產生 ================= */
@@ -406,6 +437,61 @@ function buildCuts(pat,c){
       }
     }
   }
+  else if(pat==="diag45"){
+    const ang=Math.PI/4, ux=Math.cos(ang), uy=Math.sin(ang), nx=-uy, ny=ux;
+    const cx=x0+c.W/2, cy=H/2;
+    const nLines=Math.ceil(Math.hypot(c.W,H)/pitch);
+    const clip=(px,py)=>{
+      let t0=-1e9,t1=1e9,bad=false;
+      const upd=(p,u,lo,hi)=>{
+        if(Math.abs(u)<1e-9){ if(p<lo||p>hi) bad=true; return;}
+        let a=(lo-p)/u,b=(hi-p)/u; if(a>b){const s=a;a=b;b=s;}
+        t0=Math.max(t0,a); t1=Math.min(t1,b);
+      };
+      upd(px,ux,x0,x0+c.W); upd(py,uy,0,H);
+      return (!bad&&t1>t0)?[t0,t1]:null;
+    };
+    for(let i=-nLines;i<=nLines;i++){
+      const px=cx+nx*i*pitch, py=cy+ny*i*pitch;
+      const r=clip(px,py); if(!r) continue;
+      const off=(i%2)?0:period/2;
+      for(let tA=Math.floor((r[0]-off)/period)*period+off; tA<r[1]; tA+=period){
+        const s1=Math.max(r[0],tA), s2=Math.min(r[1],tA+seg);
+        if(s2-s1<1) continue;
+        cuts.push(`M ${(px+ux*s1).toFixed(3)} ${(py+uy*s1).toFixed(3)} L ${(px+ux*s2).toFixed(3)} ${(py+uy*s2).toFixed(3)}`);
+      }
+    }
+  }
+  else if(pat==="auxetic"){
+    const a=c.auxA, h=c.auxH;
+    const nx2=Math.max(2,Math.floor(c.W/a)), ny2=Math.max(2,Math.floor(H/a));
+    // 水平切線：y=j·a，於 (i+j) 為偶數的節點留鉸鏈
+    for(let j=1;j<ny2;j++){
+      const y=(j*a).toFixed(3); let xs=x0;
+      for(let i=1;i<=nx2;i++){
+        if((i+j)%2===0){
+          const vx=x0+i*a;
+          if(vx-h/2-xs>0.5) cuts.push(`M ${xs.toFixed(3)} ${y} L ${(vx-h/2).toFixed(3)} ${y}`);
+          xs=vx+h/2;
+        }
+      }
+      const xend=x0+nx2*a;
+      if(xend-xs>0.5) cuts.push(`M ${xs.toFixed(3)} ${y} L ${xend.toFixed(3)} ${y}`);
+    }
+    // 垂直切線：x=x0+i·a，於 (i+j) 為奇數的節點留鉸鏈
+    for(let i=1;i<nx2;i++){
+      const x=(x0+i*a).toFixed(3); let ys=0;
+      for(let j=1;j<=ny2;j++){
+        if((i+j)%2===1){
+          const vy=j*a;
+          if(vy-h/2-ys>0.5) cuts.push(`M ${x} ${ys.toFixed(3)} L ${x} ${(vy-h/2).toFixed(3)}`);
+          ys=vy+h/2;
+        }
+      }
+      const yend=ny2*a;
+      if(yend-ys>0.5) cuts.push(`M ${x} ${ys.toFixed(3)} L ${x} ${yend.toFixed(3)}`);
+    }
+  }
   return {cuts,x0};
 }
 
@@ -428,7 +514,7 @@ function svgDoc(pat,c,forLaser){
       <text x="${x0+c.W/2}" y="${H+11}" font-size="4.2" fill="#6FC7FF" text-anchor="middle" font-family="IBM Plex Mono,monospace">W = ${fmt(c.W)} mm · n = ${c.n} · R_in = ${fmt(c.Rin)} mm</text>`;
   }
   const border=`<rect x="0.2" y="0.2" width="${totalW-0.4}" height="${H-0.4}" fill="none" stroke="${forLaser?"#0000FF":"rgba(158,197,255,.5)"}" stroke-width="${sw}"/>`;
-  const meta=forLaser?`<!-- lattice-hinge-designer Rev.B | pattern=${pat} | t=${c.t} w=${c.w} l=${c.l} k=${c.k} mm | n=${c.n} Theta=${c.ThetaDeg}deg | G=${c.G}MPa tau_allow=${c.tauA.toFixed(1)}MPa | W=${c.W.toFixed(1)} R_in=${c.Rin.toFixed(1)} R_out=${c.Rout.toFixed(1)} mm | red=cut blue=outline -->
+  const meta=forLaser?`<!-- lattice-hinge-designer Rev.C | pattern=${pat} | t=${c.t} w=${c.w} l=${c.l} k=${c.k} mm | n=${c.n} Theta=${c.ThetaDeg}deg | G=${c.G}MPa tau_allow=${c.tauA.toFixed(1)}MPa | W=${c.W.toFixed(1)} R_in=${c.Rin.toFixed(1)} R_out=${c.Rout.toFixed(1)} mm | red=cut blue=outline -->
 `:"";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}mm" height="${forLaser?H:H+14}mm" viewBox="0 ${forLaser?0:-2} ${totalW} ${forLaser?H:H+16}">
     ${meta}${extra}${border}
@@ -440,6 +526,124 @@ function svgDoc(pat,c,forLaser){
 function drawPreview(){
   $("preview").innerHTML=svgDoc(currentPattern,lastCalc,false);
   $("patnote").innerHTML=PATTERNS.find(p=>p.id===currentPattern).note;
+}
+
+/* ================= 變半徑設計器 ================= */
+const ED={W:240,H:130,pts:null,drag:-1};
+function edDefault(){ED.pts=[[15,105],[80,95],[135,78],[185,72],[225,70]];}
+edDefault();
+function crPoint(p0,p1,p2,p3,t){
+  const t2=t*t,t3=t2*t;
+  const f=(a,b,cc,d)=>0.5*((2*b)+(-a+cc)*t+(2*a-5*b+4*cc-d)*t2+(-a+3*b-3*cc+d)*t3);
+  return [f(p0[0],p1[0],p2[0],p3[0]),f(p0[1],p1[1],p2[1],p3[1])];
+}
+function sampleCurve(n=400){
+  const P=ED.pts,out=[];
+  for(let i=0;i<P.length-1;i++){
+    const p0=P[Math.max(0,i-1)],p1=P[i],p2=P[i+1],p3=P[Math.min(P.length-1,i+2)];
+    const m=Math.ceil(n/(P.length-1));
+    for(let k=0;k<m;k++) out.push(crPoint(p0,p1,p2,p3,k/m));
+  }
+  out.push([...P[P.length-1]]);
+  return out;
+}
+let varData=null;
+function computeVar(){
+  const c=lastCalc; if(!c) return;
+  const S=sampleCurve();
+  let L=0; const segs=[];
+  for(let i=1;i<S.length;i++){
+    const dx=S[i][0]-S[i-1][0],dy=S[i][1]-S[i-1][1];
+    const ds=Math.hypot(dx,dy); if(ds<1e-6) continue;
+    segs.push({s:L,ds,phi:Math.atan2(dy,dx)}); L+=ds;
+  }
+  // 每列容許彎角同時受應力與幾何干涉限制（與主計算 n = max(n_stress, n_geo) 一致）
+  const thetaCol=Math.min(c.thetaStress,Math.max(c.thetaGeo,1e-6));
+  const pitchMin=c.w+c.k;
+  const ONSET=0.02;                  // 首列放在彎曲起點（累積約 1° 即放），受扭區在列與列之間
+  const cols=[]; let acc=0,minR=1e9,tight=false,lastS=-1e9;
+  for(let i=1;i<segs.length;i++){
+    let dphi=segs[i].phi-segs[i-1].phi;
+    while(dphi>Math.PI)dphi-=2*Math.PI; while(dphi<-Math.PI)dphi+=2*Math.PI;
+    const kap=Math.abs(dphi)/segs[i].ds;
+    if(kap>1e-4) minR=Math.min(minR,1/kap);
+    acc+=Math.abs(dphi);
+    if(acc >= (cols.length?thetaCol:ONSET)){
+      const s=segs[i].s;
+      if(cols.length && s-lastS<pitchMin) tight=true;
+      cols.push(s); lastS=s;
+      acc = cols.length===1 ? 0 : acc-thetaCol;
+    }
+  }
+  varData={L,cols,minR,tight,thetaCol,Rreach:pitchMin/thetaCol};
+  drawVar(S);
+}
+function ptAt(S,s){
+  let acc=0;
+  for(let i=1;i<S.length;i++){
+    const ds=Math.hypot(S[i][0]-S[i-1][0],S[i][1]-S[i-1][1]);
+    if(acc+ds>=s){const f=(s-acc)/ds;
+      return [S[i-1][0]+f*(S[i][0]-S[i-1][0]),S[i-1][1]+f*(S[i][1]-S[i-1][1])];}
+    acc+=ds;
+  }
+  return null;
+}
+function drawVar(S){
+  const v=varData;
+  const path=S.map((p,i)=>(i?"L":"M")+p[0].toFixed(2)+" "+p[1].toFixed(2)).join(" ");
+  $("curveEd").innerHTML=`<svg viewBox="0 0 ${ED.W} ${ED.H}" style="touch-action:none">
+    <defs><pattern id="edg" width="10" height="10" patternUnits="userSpaceOnUse">
+      <path d="M10 0H0V10" fill="none" stroke="rgba(158,197,255,.08)" stroke-width="0.4"/></pattern></defs>
+    <rect width="${ED.W}" height="${ED.H}" fill="url(#edg)"/>
+    <path d="${path}" fill="none" stroke="#D9A86C" stroke-width="2.2" stroke-linecap="round"/>
+    ${v.cols.map(s=>{const p=ptAt(S,s);return p?`<circle cx="${p[0].toFixed(2)}" cy="${p[1].toFixed(2)}" r="1.1" fill="#FF6B57"/>`:""}).join("")}
+    ${ED.pts.map((p,i)=>`<circle class="cp" data-i="${i}" cx="${p[0].toFixed(2)}" cy="${p[1].toFixed(2)}" r="5.5" fill="#0D2340" stroke="#6FC7FF" stroke-width="1.4" style="cursor:grab"/>`).join("")}
+  </svg>`;
+  $("curveEd").querySelectorAll(".cp").forEach(cp=>{
+    cp.addEventListener("pointerdown",e=>{ED.drag=+cp.dataset.i;e.preventDefault();});
+  });
+  $("varStats").innerHTML=`
+    <div class="stat hero"><div class="k">切線列數</div><div class="v">${v.cols.length}<small>columns</small></div></div>
+    <div class="stat"><div class="k">展開長度</div><div class="v">${fmt(v.L)}<small>mm</small></div></div>
+    <div class="stat"><div class="k">曲線最小半徑</div><div class="v">${v.minR>9e8?"∞":fmt(v.minR)}<small>mm</small></div></div>
+    <div class="stat"><div class="k">參數可達最小半徑</div><div class="v">${fmt(v.Rreach)}<small>mm</small></div></div>`;
+  const fl=[];
+  if(v.minR<v.Rreach) fl.push(["bad",`曲線最小半徑 ${fmt(v.minR)}mm 小於此材料參數可達的 ${fmt(v.Rreach)}mm — 請加長連桿 l、提高應力上限，或放緩曲線。`]);
+  else fl.push(["ok","曲率需求在材料能力範圍內。曲線上的紅點即切線列位置：曲率大處自動加密。"]);
+  if(v.tight) fl.push(["warn","部分切線列間距已小於 w+k，該區段連桿會過窄，請放緩局部曲率。"]);
+  $("varFlags").innerHTML=fl.map(([cl,tx])=>`<div class="flag ${cl}"><span class="dot"></span><span>${tx}</span></div>`).join("");
+  $("varPreview").innerHTML=varSvg(false);
+}
+function varSvg(forLaser){
+  const c=lastCalc,v=varData;
+  const m=12,H=c.H,W=v.L+2*m;
+  const gap=Math.max(3,1.5*c.t),seg=2*c.l+gap,period=seg+gap;
+  const cuts=[];
+  v.cols.forEach((s,i)=>{
+    const x=m+s,off=(i%2)?0:period/2;
+    for(let y=-period+off;y<H+period;y+=period){
+      const y1=Math.max(0,y),y2=Math.min(H,y+seg);
+      if(y2-y1>1) cuts.push(`M ${x.toFixed(3)} ${y1.toFixed(3)} L ${x.toFixed(3)} ${y2.toFixed(3)}`);
+    }
+  });
+  const stroke=forLaser?"#FF0000":"#FF6B57",sw=forLaser?0.1:0.35;
+  const meta=forLaser?`<!-- lattice-hinge-designer Rev.C | pattern=variable-radius | t=${c.t} w=${c.w} l=${c.l} k=${c.k} mm | cols=${v.cols.length} L=${v.L.toFixed(1)}mm | G=${c.G}MPa tau_allow=${c.tauA.toFixed(1)}MPa | red=cut blue=outline -->
+`:"";
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W.toFixed(1)}mm" height="${H}mm" viewBox="0 0 ${W.toFixed(1)} ${H}">
+    ${meta}${forLaser?"":`<rect width="${W.toFixed(1)}" height="${H}" fill="#152C4E"/>`}
+    <rect x="0.2" y="0.2" width="${(W-0.4).toFixed(1)}" height="${H-0.4}" fill="none" stroke="${forLaser?"#0000FF":"rgba(158,197,255,.5)"}" stroke-width="${sw}"/>
+    <g fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-linecap="round">
+      ${cuts.map(d=>`<path d="${d}"/>`).join("")}
+    </g></svg>`;
+}
+function edMove(e){
+  if(ED.drag<0)return;
+  const svg=$("curveEd").querySelector("svg"); if(!svg)return;
+  const r=svg.getBoundingClientRect();
+  const x=(e.clientX-r.left)/r.width*ED.W, y=(e.clientY-r.top)/r.height*ED.H;
+  ED.pts[ED.drag]=[Math.min(ED.W-5,Math.max(5,x)),Math.min(ED.H-5,Math.max(5,y))];
+  computeVar();
+  e.preventDefault();
 }
 
 /* ================= 下載 ================= */
@@ -465,7 +669,14 @@ function init(){
     b.classList.add("on");currentPattern=b.dataset.p;drawPreview();
   });
 
-  ["G","tau","t","w","l","kerf","theta","H"].forEach(id=>$(id).addEventListener("input",calc));
+  ["G","tau","t","w","l","kerf","theta","H","auxA","auxH"].forEach(id=>$(id).addEventListener("input",calc));
+
+  window.addEventListener("pointermove",edMove,{passive:false});
+  window.addEventListener("pointerup",()=>ED.drag=-1);
+  $("dlVar").addEventListener("click",()=>{
+    download(`variable_radius_t${lastCalc.t}_${varData.cols.length}cols.svg`,varSvg(true),"image/svg+xml");
+  });
+  $("resetVar").addEventListener("click",()=>{edDefault();computeVar();});
   $("ratio").addEventListener("input",()=>{$("ratioVal").textContent=" "+$("ratio").value+"%";calc();});
   $("ratioVal").textContent=" "+$("ratio").value+"%";
 
