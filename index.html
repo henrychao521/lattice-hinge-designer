@@ -119,7 +119,7 @@
 <div class="wrap">
   <header>
     <div class="eyebrow">Laser Kerf Bending · Torsional Link Model</div>
-    <h1>格狀鉸鏈設計推論系統<span class="en">LATTICE HINGE DESIGN CALCULATOR — Rev.D</span></h1>
+    <h1>格狀鉸鏈設計推論系統<span class="en">LATTICE HINGE DESIGN CALCULATOR — Rev.E</span></h1>
     <p class="sub">依據 Patrick Fenner（Deferred Procrastination, 2011–2012）的扭轉連桿模型：輸入材料與幾何參數，反推最少連桿數、彎折半徑與應力狀態，並產生可直接雷射切割的 SVG 檔。</p>
   </header>
 
@@ -195,7 +195,7 @@
           <input type="number" id="auxH" step="0.2" min="0.4" value="1.2">
         </div>
       </div>
-      <p class="hint">最後兩項僅「Auxetic 旋轉方塊」圖樣使用；h 越小越柔軟但越易斷，木板建議 ≥ 板厚的 1/3。</p>
+      <p class="hint">最後兩項僅「Auxetic 旋轉方塊」圖樣使用。注意：每個角隅節點必有一條切線穿過，鉸鏈實際被剖成兩條韌帶，<b>有效寬度 = (h − k)/2 每側</b>；h 越小越柔軟但越易斷，建議韌帶 ≥ 0.3mm（即 h ≥ k + 0.6）。</p>
     </section>
 
     <!-- ======= 結果與圖樣 ======= -->
@@ -218,6 +218,7 @@
         <div class="preview" id="preview"></div>
         <div class="btnrow">
           <button class="act" id="dl">下載雷射切割 SVG</button>
+          <button class="act ghost" id="dlDxf">下載 DXF</button>
           <button class="act ghost" id="dlAll">下載目前參數報告 (txt)</button>
           <button class="act ghost" id="dlCoupon">下載 kerf 校正試片 SVG</button>
         </div>
@@ -234,6 +235,7 @@
         <div class="preview" id="varPreview"></div>
         <div class="btnrow">
           <button class="act" id="dlVar">下載變半徑切割 SVG</button>
+          <button class="act ghost" id="dlVarDxf">下載變半徑 DXF</button>
           <button class="act ghost" id="resetVar">重設曲線</button>
         </div>
       </div>
@@ -309,7 +311,7 @@ const PATTERNS = [
   {id:"diag45", name:"斜向 45°（扭轉變體）",
    note:"直線格狀旋轉 45°，彎軸方向跟著旋轉，適合<b>斜向摺線</b>造型。力學仍為扭轉主導，公式以沿彎軸法向的有效間距 (w+k)/cos45° 做角度分解後近似適用。"},
   {id:"auxetic", name:"Auxetic 旋轉方塊（雙曲面）",
-   note:"拉脹結構：Poisson 比 ≈ −1、面內可伸縮，是做<b>球面、鞍面等雙曲面</b>的必要條件（一般格狀鉸鏈高斯曲率恆為零，只能彎成柱面）。線性伸展率 L(θ)/L₀ = cos(θ/2)+sin(θ/2)，方塊轉角 θ=90° 時達最大 √2（+41%）。剛性由角隅鉸鏈寬 h 控制，設計基準是鉸鏈的<b>彎曲應力</b>而非扭轉，h 請以試片決定。"},
+   note:"拉脹結構：Poisson 比 ≈ −1、面內可伸縮，是做<b>球面、鞍面等雙曲面</b>的必要條件（一般格狀鉸鏈高斯曲率恆為零，只能彎成柱面）。線性伸展率 L(θ)/L₀ = cos(θ/2)+sin(θ/2)，方塊轉角 θ=90° 時達最大 √2（+41%）。剛性由角隅鉸鏈寬 h 控制——注意穿過節點的切線會把鉸鏈剖半，<b>有效韌帶 = (h−k)/2 每側</b>；設計基準是韌帶的<b>彎曲應力</b>而非扭轉，h 請以試片決定。"},
 ];
 
 /* ================= 主計算 ================= */
@@ -379,6 +381,9 @@ function render(){
   else flags.push(["bad",`工作應力達降伏應力的 ${fmt(util*100,0)}% — 極可能在彎折時斷裂，請增加 n 或加長 l。`]);
   if(c.l > 4*c.t) flags.push(["warn",`連桿長度 l = ${c.l}mm 超過板厚 4 倍（${4*c.t}mm）— Fenner 實測易發生邊緣外翻斷裂，建議縮短。`]);
   if(c.Rin < c.t) flags.push(["bad",`內彎半徑 R_in = ${fmt(c.Rin)}mm 小於板厚 ${c.t}mm — 彎折處近乎對折，內側纖維會壓潰，請增加 w、k 或減小 Θ。`]);
+  const lig=(c.auxH-c.k)/2;
+  if(lig<=0) flags.push(["bad",`Auxetic：鉸鏈寬 h=${c.auxH}mm ≤ 切縫 k=${c.k}mm — 穿過節點的切線會把韌帶完全切除，方塊將全部散落；請加大 h。`]);
+  else if(lig<0.3) flags.push(["warn",`Auxetic：有效韌帶 (h−k)/2 = ${fmt(lig,2)}mm/側 — 加上切割熱影響極易燒斷，建議 h ≥ ${fmt(c.k+0.6,1)}mm。`]);
   const gp=Math.max(3,1.5*c.t);
   if(2*c.l+gp >= c.H) flags.push(["warn",`鉸鏈長 H=${c.H}mm ≤ 切段長 2l+gap=${fmt(2*c.l+gp)}mm — 沿彎軸放不下完整交錯切段，切線已自動在中央保留 junction 防止板材分離，但每列連桿極少、負載集中；建議 H ≥ ${fmt(2*(2*c.l+gp),0)}mm 或縮短 l。`]);
   if(c.nGeo > c.nStress) flags.push(["warn",`幾何干涉為控制條件（n_geo=${c.nGeo} > n_stress=${c.nStress}）：單刀切縫下相鄰連桿角部會互碰，已自動採用較大值。`]);
@@ -655,7 +660,7 @@ function drawVar(S){
   $("varFlags").innerHTML=fl.map(([cl,tx])=>`<div class="flag ${cl}"><span class="dot"></span><span>${tx}</span></div>`).join("");
   $("varPreview").innerHTML=varSvg(false);
 }
-function varSvg(forLaser){
+function buildVarCuts(){
   const c=lastCalc,v=varData;
   const m=12,H=c.H,W=v.L+2*m;
   const gap=Math.max(3,1.5*c.t),seg=2*c.l+gap,period=seg+gap;
@@ -673,6 +678,11 @@ function varSvg(forLaser){
       } else cuts.push(`M ${x.toFixed(3)} ${y1.toFixed(3)} L ${x.toFixed(3)} ${y2.toFixed(3)}`);
     }
   });
+  return {cuts,W,H};
+}
+function varSvg(forLaser){
+  const c=lastCalc,v=varData;
+  const {cuts,W,H}=buildVarCuts();
   const stroke=forLaser?"#FF0000":"#FF6B57",sw=forLaser?0.1:0.35;
   const meta=forLaser?`<!-- lattice-hinge-designer Rev.C | pattern=variable-radius | t=${c.t} w=${c.w} l=${c.l} k=${c.k} mm | cols=${v.cols.length} L=${v.L.toFixed(1)}mm | G=${c.G}MPa tau_allow=${c.tauA.toFixed(1)}MPa | red=cut blue=outline -->
 `:"";
@@ -724,6 +734,53 @@ function couponSvg(){
     <g fill="none" stroke="#FF0000" stroke-width="0.1" stroke-linecap="round">
       ${cuts.map(d=>`<path d="${d}"/>`).join("\n")}
     </g></svg>`;
+}
+
+/* ================= DXF 匯出（R12 ASCII，全部展成 LINE，雷射軟體通用） ================= */
+function pathToPolys(d){
+  // 解析本工具產生的 SVG path 子集：M/L(絕對)、h/v/q/a(相對)、Z
+  const t=d.match(/[A-Za-z]|-?\d*\.?\d+/g)||[];
+  let i=0,cmd='',x=0,y=0;
+  const polys=[];let cur=null;
+  const num=()=>+t[i++];
+  while(i<t.length){
+    if(/^[A-Za-z]$/.test(t[i])) cmd=t[i++];
+    if(cmd==='M'){x=num();y=num();cur=[[x,y]];polys.push(cur);cmd='L';}
+    else if(cmd==='L'){x=num();y=num();cur.push([x,y]);}
+    else if(cmd==='h'){x+=num();cur.push([x,y]);}
+    else if(cmd==='v'){y+=num();cur.push([x,y]);}
+    else if(cmd==='q'){                          // 二次貝茲 → 8 段折線（波浪圖樣）
+      const cx=x+num(),cy=y+num(),ex=x+num(),ey=y+num();
+      for(let s=1;s<=8;s++){const u=s/8,mt=1-u;
+        cur.push([mt*mt*x+2*mt*u*cx+u*u*ex, mt*mt*y+2*mt*u*cy+u*u*ey]);}
+      x=ex;y=ey;}
+    else if(cmd==='a'){                          // 本工具僅用半圓弧（長孔端），圓心=弦中點
+      const r=num();num();num();num();num();
+      const ex=x+num(),ey=y+num();
+      const mx=(x+ex)/2,my=(y+ey)/2,a0=Math.atan2(y-my,x-mx);
+      for(let s=1;s<=12;s++){const a=a0+Math.PI*s/12;
+        cur.push([mx+r*Math.cos(a),my+r*Math.sin(a)]);}
+      x=ex;y=ey;}
+    else if(cmd==='Z'||cmd==='z'){cur.push([...cur[0]]);}
+    else i++;
+  }
+  return polys;
+}
+function toDXF(paths,Hflip,border){
+  // DXF y 軸向上，SVG 向下 → y 翻轉；單位 mm（$INSUNITS=4）
+  const seg=[];
+  paths.forEach(d=>pathToPolys(d).forEach(p=>{
+    for(let i=1;i<p.length;i++) seg.push([p[i-1][0],Hflip-p[i-1][1],p[i][0],Hflip-p[i][1],"CUT",1]);
+  }));
+  if(border){
+    const {w,h}=border;
+    [[0,0,w,0],[w,0,w,h],[w,h,0,h],[0,h,0,0]].forEach(([x1,y1,x2,y2])=>seg.push([x1,y1,x2,y2,"OUTLINE",5]));
+  }
+  let s="0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n";
+  seg.forEach(([x1,y1,x2,y2,layer,col])=>{
+    s+=`0\nLINE\n8\n${layer}\n62\n${col}\n10\n${x1.toFixed(3)}\n20\n${y1.toFixed(3)}\n11\n${x2.toFixed(3)}\n21\n${y2.toFixed(3)}\n`;
+  });
+  return s+"0\nENDSEC\n0\nEOF\n";
 }
 
 /* ================= 下載 ================= */
@@ -787,6 +844,17 @@ function init(){
   });
   $("dlCoupon").addEventListener("click",()=>{
     download(`kerf_coupon_t${lastCalc.t}_w${lastCalc.w}_l${lastCalc.l}.svg`,couponSvg(),"image/svg+xml");
+  });
+  $("dlDxf").addEventListener("click",()=>{
+    const c=lastCalc;
+    const {cuts,x0}=buildCuts(currentPattern,c);
+    download(`lattice_${currentPattern}_t${c.t}_n${c.n}_${c.ThetaDeg}deg.dxf`,
+      toDXF(cuts,c.H,{w:c.W+2*x0,h:c.H}),"application/dxf");
+  });
+  $("dlVarDxf").addEventListener("click",()=>{
+    const {cuts,W,H}=buildVarCuts();
+    download(`variable_radius_t${lastCalc.t}_${varData.cols.length}cols.dxf`,
+      toDXF(cuts,H,{w:W,h:H}),"application/dxf");
   });
   $("dlAll").addEventListener("click",()=>{
     const c=lastCalc;
