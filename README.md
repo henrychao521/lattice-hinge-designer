@@ -4,6 +4,7 @@
 輸入材料與幾何參數,即時推算最少連桿數、彎折半徑與工作應力,並可匯出雷射切割用 SVG 檔。
 
 **線上使用**: https://henrychao521.github.io/lattice-hinge-designer/
+**教學文**: https://henrychao521.github.io/lattice-hinge-designer/teaching.html （原理→計算→材料機台→實作→失敗路徑→課堂建議,2–4 節課教案）
 **開發對話紀錄**: https://henrychao521.github.io/lattice-hinge-designer/dev-log.html （8 輪對話 Rev.A→H 的完整開發歷程）
 **範例檔**: [`examples/laser33050mm.dxf`](examples/laser33050mm.dxf) — Onshape 匯出的 330×50mm 鉸鏈件,可直接餵給「DXF 逆向分析」試用
 
