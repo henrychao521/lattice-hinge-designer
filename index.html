@@ -119,7 +119,7 @@
 <div class="wrap">
   <header>
     <div class="eyebrow">Laser Kerf Bending · Torsional Link Model</div>
-    <h1>格狀鉸鏈設計推論系統<span class="en">LATTICE HINGE DESIGN CALCULATOR — Rev.E</span></h1>
+    <h1>格狀鉸鏈設計推論系統<span class="en">LATTICE HINGE DESIGN CALCULATOR — Rev.F</span></h1>
     <p class="sub">依據 Patrick Fenner（Deferred Procrastination, 2011–2012）的扭轉連桿模型：輸入材料與幾何參數，反推最少連桿數、彎折半徑與應力狀態，並產生可直接雷射切割的 SVG 檔。</p>
   </header>
 
@@ -240,6 +240,14 @@
         </div>
       </div>
 
+      <div class="card" style="margin-top:18px">
+        <h2>DXF 逆向分析（可行性檢查）</h2>
+        <p class="patnote">匯入外部 DXF（Onshape、Illustrator、Fusion 等輸出），自動偵測格狀切線參數，依<b>目前左側的材料／機台設定</b>推算可達彎角與最小半徑，並以像素化淹水填充檢查<b>會不會切斷</b>。僅解析 LINE 實體；檔案在瀏覽器本機處理、不會上傳。</p>
+        <input type="file" id="dxfFile" accept=".dxf" style="font-size:.85rem;color:var(--dim);max-width:100%">
+        <div class="results" id="dxfStats" style="margin-top:12px"></div>
+        <div id="dxfFlags"></div>
+      </div>
+
       <footer>
         公式來源：P. Fenner, <i>Laser-cut Lattice Living Hinges</i>（deferredprocrastination.co.uk / defproc.co.uk, 2011–2012）；圖樣分類參考 A. Porterfield（Instructables, 2014）與 Trotec Kerf 系列。木質材料之 G、τ 受樹種、纖維方向與含水率影響極大，表列值僅供初估，<b>務必以試片實測校正</b>。此工具假設材料均質、junction 不變形，未考慮切縫碳化與疲勞累積。
       </footer>
@@ -314,6 +322,16 @@ const PATTERNS = [
    note:"拉脹結構：Poisson 比 ≈ −1、面內可伸縮，是做<b>球面、鞍面等雙曲面</b>的必要條件（一般格狀鉸鏈高斯曲率恆為零，只能彎成柱面）。線性伸展率 L(θ)/L₀ = cos(θ/2)+sin(θ/2)，方塊轉角 θ=90° 時達最大 √2（+41%）。剛性由角隅鉸鏈寬 h 控制——注意穿過節點的切線會把鉸鏈剖半，<b>有效韌帶 = (h−k)/2 每側</b>；設計基準是韌帶的<b>彎曲應力</b>而非扭轉，h 請以試片決定。"},
 ];
 
+/* 幾何干涉角：投影寬度非單調（極值在 atan(t/w)），須找「第一個」違反角，不能直接二分 */
+function geoTheta(w,t,k){
+  const STEPS=1800;
+  for(let i=1;i<=STEPS;i++){
+    const m=i*(Math.PI/2)/STEPS;
+    if(w*Math.cos(m)+t*Math.sin(m) > w+k) return (i-1)*(Math.PI/2)/STEPS;
+  }
+  return Math.PI/2;
+}
+
 /* ================= 主計算 ================= */
 const $ = id=>document.getElementById(id);
 let currentPattern = "straight";
@@ -338,13 +356,7 @@ function calc(){
   const nStress = Math.ceil(Theta/thetaStress);
 
   // 2) 幾何干涉：w·cosθ + t·sinθ ≤ w + k
-  // 投影寬度非單調（極值在 atan(t/w)），須找「第一個」違反角，不能直接二分
-  const STEPS=1800;
-  let thetaGeo=Math.PI/2;
-  for(let i=1;i<=STEPS;i++){
-    const m=i*(Math.PI/2)/STEPS;
-    if(w*Math.cos(m)+t*Math.sin(m) > w+k){ thetaGeo=(i-1)*(Math.PI/2)/STEPS; break; }
-  }
+  const thetaGeo=geoTheta(w,t,k);
   const nGeo = Math.ceil(Theta/Math.max(thetaGeo,1e-6));
 
   const n = Math.max(nStress,nGeo,2);
@@ -411,6 +423,7 @@ function render(){
 
   drawPreview();
   computeVar();
+  if(dxfState) analyzeDXF();   // 材料/機台參數變動時，DXF 力學推算即時重算
 }
 
 /* ================= SVG 圖樣產生 ================= */
@@ -703,6 +716,214 @@ function edMove(e){
   e.preventDefault();
 }
 
+/* ================= DXF 逆向分析 ================= */
+let dxfState=null;
+function median(arr){const s=[...arr].sort((a,b)=>a-b);return s.length?s[Math.floor(s.length/2)]:0;}
+
+function parseDXFLines(text){
+  // 走訪 group code/value 對，只取 ENTITIES 段的 LINE
+  const rows=text.split(/\r?\n/);
+  const lines=[]; const other={};
+  let inEnt=false, cur=null, curType='';
+  const flush=()=>{
+    if(cur&&curType==='LINE'&&['10','20','11','21'].every(kk=>kk in cur))
+      lines.push([+cur['10'],+cur['20'],+cur['11'],+cur['21']]);
+  };
+  for(let i=0;i+1<rows.length;i+=2){
+    const code=rows[i].trim(), val=rows[i+1].trim();
+    if(code==='2'&&val==='ENTITIES'){inEnt=true;continue;}
+    if(code==='0'){
+      if(inEnt){
+        flush();
+        if(val==='ENDSEC'){inEnt=false;cur=null;continue;}
+        curType=val; cur={};
+        if(val!=='LINE') other[val]=(other[val]||0)+1;
+      }
+      continue;
+    }
+    if(inEnt&&cur&&!(code in cur)) cur[code]=val;
+  }
+  const um=text.match(/\$INSUNITS[\s\S]{0,60}?70\s*\r?\n\s*(\d+)/);
+  return {lines, other, insunits:um?+um[1]:null};
+}
+
+function dxfConnectivity(lines,bx0,by0,bx1,by1,k){
+  const pad=1;
+  let res=0.1;
+  while(((bx1-bx0+2*pad)/res)*((by1-by0+2*pad)/res)>4.5e6) res*=2;
+  const nx=Math.ceil((bx1-bx0+2*pad)/res), ny=Math.ceil((by1-by0+2*pad)/res);
+  const grid=new Uint8Array(nx*ny);
+  const rad=Math.max(1,Math.round(k/2/res));
+  lines.forEach(([xa,ya,xb,yb])=>{
+    const Ln=Math.hypot(xb-xa,yb-ya), steps=Math.max(1,Math.ceil(Ln/(res/2)));
+    for(let s=0;s<=steps;s++){
+      const cx=Math.round((xa+(xb-xa)*s/steps-bx0+pad)/res),
+            cy=Math.round((ya+(yb-ya)*s/steps-by0+pad)/res);
+      for(let dy=-rad;dy<=rad;dy++)for(let dx=-rad;dx<=rad;dx++){
+        const gx=cx+dx,gy=cy+dy;
+        if(gx>=0&&gx<nx&&gy>=0&&gy<ny) grid[gy*nx+gx]=1;
+      }
+    }
+  });
+  const label=new Int32Array(nx*ny); let comp=0; const sizes=[];
+  const q=new Int32Array(nx*ny);
+  for(let s0=0;s0<nx*ny;s0++){
+    if(grid[s0]||label[s0]) continue;
+    comp++; let head=0,tail=0,size=0; q[tail++]=s0; label[s0]=comp;
+    while(head<tail){
+      const idx=q[head++]; size++;
+      const x=idx%nx, y=(idx-x)/nx;
+      if(x+1<nx&&!grid[idx+1]&&!label[idx+1]){label[idx+1]=comp;q[tail++]=idx+1;}
+      if(x>0&&!grid[idx-1]&&!label[idx-1]){label[idx-1]=comp;q[tail++]=idx-1;}
+      if(y+1<ny&&!grid[idx+nx]&&!label[idx+nx]){label[idx+nx]=comp;q[tail++]=idx+nx;}
+      if(y>0&&!grid[idx-nx]&&!label[idx-nx]){label[idx-nx]=comp;q[tail++]=idx-nx;}
+    }
+    sizes.push(size);
+  }
+  // 角落 = 外部/廢料元件；扣掉它剩下的就是「工件」數
+  const exterior=label[0];
+  const pieces=comp-1;
+  return {comp,pieces,res};
+}
+
+function analyzeDXF(){
+  const st=dxfState; if(!st||!lastCalc) return;
+  const c=lastCalc, k=c.k, t=c.t;
+  const flags=[];
+  const eps=1e-4;
+  const S=$("dxfStats"), F=$("dxfFlags");
+  const show=(stats)=>{
+    S.innerHTML=stats.map(([kk,vv,u])=>`<div class="stat"><div class="k">${kk}</div><div class="v">${vv}<small>${u||""}</small></div></div>`).join("");
+    F.innerHTML=flags.map(([cl,tx])=>`<div class="flag ${cl}"><span class="dot"></span><span>${tx}</span></div>`).join("");
+  };
+  if(st.insunits!==null&&st.insunits!==4)
+    flags.push(["warn",`檔頭 $INSUNITS=${st.insunits}（非 4=mm）— 以下尺寸假設為 mm，若是英吋請先換算。`]);
+  if(Object.keys(st.other).length)
+    flags.push(["warn",`已略過非 LINE 實體：${Object.entries(st.other).map(([a,b])=>a+"×"+b).join("、")} — 聚合線/圓弧請在 CAD 炸開成線段後重新匯出，分析才完整。`]);
+  if(!st.lines.length){flags.push(["bad","沒有 LINE 實體可分析。"]);show([]);return;}
+
+  const isV=l=>Math.abs(l[0]-l[2])<eps&&Math.abs(l[1]-l[3])>=eps;
+  const isH=l=>Math.abs(l[1]-l[3])<eps&&Math.abs(l[0]-l[2])>=eps;
+  let L=st.lines, swapped=false;
+  if(L.filter(isH).length>L.filter(isV).length){L=L.map(([a,b,x,y])=>[b,a,y,x]);swapped=true;}
+  const xsA=L.flatMap(l=>[l[0],l[2]]), ysA=L.flatMap(l=>[l[1],l[3]]);
+  const bx0=Math.min(...xsA),bx1=Math.max(...xsA),by0=Math.min(...ysA),by1=Math.max(...ysA);
+  const bw=bx1-bx0, bh=by1-by0;
+
+  // 外框與切線欄：先用水平框線定出外形高度，貼齊外形上下緣的長直線即為框邊
+  // （切線可能超出外框，故不能只用整體 bbox 高度判斷）
+  const frameH=L.filter(l=>isH(l)&&Math.abs(l[2]-l[0])>0.9*bw);
+  const fy0=frameH.length?Math.min(...frameH.map(l=>l[1])):by0;
+  const fy1=frameH.length?Math.max(...frameH.map(l=>l[1])):by1;
+  const isFrameV=l=>Math.abs(Math.min(l[1],l[3])-fy0)<0.5&&Math.abs(Math.max(l[1],l[3])-fy1)<0.5;
+  const frameV=L.filter(l=>isV(l)&&(Math.abs(l[3]-l[1])>0.9*bh||isFrameV(l)));
+  const colMap={};
+  L.filter(l=>isV(l)&&Math.abs(l[3]-l[1])<=0.9*bh&&!isFrameV(l)).forEach(l=>{
+    const key=Math.round(l[0]*100)/100;
+    (colMap[key]=colMap[key]||[]).push([Math.min(l[1],l[3]),Math.max(l[1],l[3])]);
+  });
+  const colX=Object.keys(colMap).map(Number).sort((a,b)=>a-b);
+
+  // 格狀偵測
+  let lat=null;
+  if(colX.length>=3){
+    const diffs=colX.slice(1).map((x,i)=>x-colX[i]);
+    const p=median(diffs);
+    const uni=diffs.filter(d=>Math.abs(d-p)<0.05*p+0.02).length/diffs.length;
+    if(p>0.3&&uni>0.8){
+      const segL=median(colX.flatMap(x=>colMap[x].map(s=>s[1]-s[0])));
+      const jn=median(colX.flatMap(x=>{
+        const s=[...colMap[x]].sort((a,b)=>a[0]-b[0]);
+        return s.slice(1).map((b,i)=>b[0]-s[i][1]);
+      }).filter(g=>g>0.05));
+      const ovs=[];
+      for(let i=0;i<colX.length-1;i++){
+        const A=colMap[colX[i]],B=colMap[colX[i+1]];
+        let best=0;
+        A.forEach(a=>B.forEach(b=>{best=Math.max(best,Math.min(a[1],b[1])-Math.max(a[0],b[0]));}));
+        if(best>0.1) ovs.push(best);
+      }
+      lat={cols:colX.length,pitch:p,segL,jn,l:median(ovs),n:colX.length-1,W:(colX.length-1)*p};
+    }
+  }
+
+  // 力學推算（用目前面板設定）
+  let mech=null;
+  if(lat&&lat.l>0.3){
+    const w2=Math.max(0.2,lat.pitch-k);
+    const b2=Math.min(t,w2), a2=Math.max(t,w2);
+    const {a:al,b:be}=tcoef(a2/b2);
+    const thS=(al/be)*c.tauA*lat.l/(c.G*b2);
+    const th=Math.min(thS,geoTheta(w2,t,k));
+    mech={th,Theta:lat.n*th,R:lat.W/(lat.n*th),w2};
+  }
+
+  // 連通性（昂貴：只在載檔或 kerf 改變時重算）
+  if(!st.conn||Math.abs(st.connK-k)>0.005){
+    st.conn=dxfConnectivity(L,bx0,by0,bx1,by1,k); st.connK=k;
+  }
+  if(st.conn.pieces>1)
+    flags.unshift(["bad",`連通性檢查（${st.conn.res}mm 像素化淹水填充、kerf=${k}mm）：切割後分離成 ${st.conn.pieces} 件 — 若非刻意落料（挖除式圖樣），代表圖樣會把板材切斷！`]);
+  else
+    flags.unshift(["ok",`連通性檢查（${st.conn.res}mm 像素化淹水填充、kerf=${k}mm）：本體為單一連通件，不會切斷。`]);
+
+  // 品質檢查
+  if(lat){
+    const recJ=Math.max(3,1.5*t);
+    if(lat.jn<recJ-0.05) flags.push(["warn",`junction ${fmt(lat.jn,1)}mm 小於建議值 max(3, 1.5t)=${fmt(recJ,1)}mm — 連桿接點偏弱，重負載易撕裂。`]);
+    if(frameV.length>=2){
+      const fx0=Math.min(...frameV.map(l=>l[0])), fx1=Math.max(...frameV.map(l=>l[0]));
+      const rail=Math.min(colX[0]-fx0, fx1-colX[colX.length-1]);
+      if(rail<5) flags.push(["warn",`鉸鏈區到外框僅 ${fmt(rail,1)}mm 邊軌 — 兩端固定區窄，組裝受力易裂，建議 ≥5mm。`]);
+    }
+    if(frameH.length>=2){
+      const fy0=Math.min(...frameH.map(l=>l[1])), fy1=Math.max(...frameH.map(l=>l[1]));
+      const over=Math.max(fy0-by0, by1-fy1);
+      if(over>0.05) flags.push(["warn",`切線超出外框 ${fmt(over,1)}mm — 雷射會切到工件外（廢料或床台/夾具位置），排版時請預留。`]);
+    }
+  } else {
+    flags.push(["warn","未偵測到等距格狀切線（欄數不足或間距不均）— 僅執行連通性與重複線檢查。"]);
+  }
+
+  // 重複線／壓線（會二次燒切）
+  const seen=new Set(); let dup=0;
+  st.lines.forEach(l=>{
+    const a=l.map(v=>Math.round(v*50)/50), key=a.join(","), rev=[a[2],a[3],a[0],a[1]].join(",");
+    if(seen.has(key)||seen.has(rev)) dup++; else seen.add(key);
+  });
+  let pressed=0;
+  [[isH,1,0],[isV,0,1]].forEach(([sel,ci,yi])=>{
+    const byAxis={};
+    st.lines.filter(sel).forEach(l=>{
+      const fixed=Math.round(l[yi?0:1]*100)/100;
+      const a=yi?[Math.min(l[1],l[3]),Math.max(l[1],l[3])]:[Math.min(l[0],l[2]),Math.max(l[0],l[2])];
+      (byAxis[fixed]=byAxis[fixed]||[]).push(a);
+    });
+    Object.values(byAxis).forEach(list=>{
+      list.sort((p,q)=>(q[1]-q[0])-(p[1]-p[0]));
+      for(let i=1;i<list.length;i++)
+        if(list.some((g,j)=>j<i&&g[0]<=list[i][0]+0.01&&g[1]>=list[i][1]-0.01)) pressed++;
+    });
+  });
+  if(dup+pressed>0) flags.push(["warn",`偵測到 ${dup} 條完全重複、${pressed} 條壓在較長線上的線段 — 同位置會燒切兩次（過燒、kerf 變寬），請在 CAD/雷射軟體去重。`]);
+
+  const stats=[["檔案",st.name.length>12?st.name.slice(0,12)+"…":st.name,""],
+               ["外形範圍",`${fmt(bw,0)}×${fmt(bh,0)}`,"mm"]];
+  if(lat){
+    stats.push(["切線欄數",lat.cols+(swapped?" 橫":""),"cols"]);
+    stats.push(["行距 pitch",fmt(lat.pitch,2),"mm"]);
+    stats.push(["切段 / junction",`${fmt(lat.segL,1)} / ${fmt(lat.jn,1)}`,"mm"]);
+    stats.push(["有效連桿長 l",fmt(lat.l,1),"mm"]);
+  }
+  if(mech){
+    const matName=MATERIALS.find(m=>m.id===$("mat").value).name;
+    stats.push(["可達總彎角",fmt(mech.Theta*180/Math.PI,0),"°"]);
+    stats.push(["最小中心半徑",fmt(mech.R,0),"mm"]);
+    flags.push(["ok",`力學推算依目前面板設定：${matName}、τ_allow=${fmt(c.tauA,1)} MPa（含 η）、板厚 ${t}mm、kerf ${k}mm、串聯連桿 n=${lat.n}、每桿 ${fmt(mech.th*180/Math.PI,2)}° — 調整左側參數會即時重算。`]);
+  }
+  show(stats);
+}
+
 /* ================= kerf 校正試片 ================= */
 function couponSvg(){
   const c=lastCalc;
@@ -855,6 +1076,12 @@ function init(){
     const {cuts,W,H}=buildVarCuts();
     download(`variable_radius_t${lastCalc.t}_${varData.cols.length}cols.dxf`,
       toDXF(cuts,H,{w:W,h:H}),"application/dxf");
+  });
+  $("dxfFile").addEventListener("change",e=>{
+    const f=e.target.files[0]; if(!f) return;
+    const r=new FileReader();
+    r.onload=()=>{ dxfState={...parseDXFLines(r.result), conn:null, name:f.name}; analyzeDXF(); };
+    r.readAsText(f);
   });
   $("dlAll").addEventListener("click",()=>{
     const c=lastCalc;
