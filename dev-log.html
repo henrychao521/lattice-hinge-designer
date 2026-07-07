@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>開發對話紀錄 · Lattice Hinge Designer</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0D2340;--panel:#11305A;--panel-2:#0F2A4E;
+    --line:rgba(158,197,255,.16);--grid:rgba(158,197,255,.07);
+    --ink:#EAF3FF;--dim:#8FB2D9;--laser:#FF6B57;--dim-line:#6FC7FF;
+    --ok:#7BE3A5;--warn:#FFC864;--bad:#FF8A7A;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:"Noto Sans TC",system-ui,sans-serif;
+    background:linear-gradient(var(--grid) 1px,transparent 1px),
+               linear-gradient(90deg,var(--grid) 1px,transparent 1px),var(--bg);
+    background-size:24px 24px,24px 24px,auto;
+    color:var(--ink);line-height:1.75;padding-bottom:80px;
+  }
+  .wrap{max-width:860px;margin:0 auto;padding:0 18px}
+  header{padding:32px 0 20px;border-bottom:1px solid var(--line)}
+  .eyebrow{font-family:"IBM Plex Mono",monospace;font-size:.72rem;letter-spacing:.22em;color:var(--dim-line);text-transform:uppercase}
+  h1{font-size:clamp(1.3rem,4vw,1.8rem);margin-top:6px}
+  .sub{color:var(--dim);font-size:.88rem;margin-top:10px}
+  .sub a{color:var(--dim-line)}
+  .meta{font-family:"IBM Plex Mono",monospace;font-size:.75rem;color:var(--dim);margin-top:8px}
+
+  .round{margin-top:26px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .round-head{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+  .rev{font-family:"IBM Plex Mono",monospace;font-size:.78rem;color:var(--laser);border:1px solid rgba(255,107,87,.45);border-radius:999px;padding:2px 10px;white-space:nowrap}
+  .round-head h2{font-size:1.02rem;font-weight:700}
+  .round-head .commit{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:.72rem;color:var(--dim)}
+  .round-body{padding:16px 18px}
+  .q{border-left:3px solid var(--dim-line);background:var(--panel-2);padding:10px 14px;border-radius:0 8px 8px 0;color:var(--ink);font-size:.9rem;margin-bottom:14px}
+  .q .who{font-family:"IBM Plex Mono",monospace;font-size:.7rem;color:var(--dim-line);letter-spacing:.15em;display:block;margin-bottom:4px}
+  .sec{margin-top:12px}
+  .sec b.tag{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:.72rem;letter-spacing:.12em;color:var(--dim-line);margin-bottom:4px}
+  .sec ul{margin:4px 0 0 20px;font-size:.88rem;color:var(--dim)}
+  .sec li{margin:4px 0}
+  .sec li b{color:var(--ink);font-weight:500}
+  .sec li code,.q code{font-family:"IBM Plex Mono",monospace;font-size:.8rem;color:var(--dim-line);background:rgba(111,199,255,.08);padding:1px 5px;border-radius:4px}
+  .bug{color:var(--bad)}
+  .fix{color:var(--ok)}
+  .lesson{margin-top:14px;border:1px solid rgba(255,200,100,.35);background:rgba(255,200,100,.06);border-radius:8px;padding:10px 14px;font-size:.85rem;color:var(--warn)}
+  .lesson b{color:var(--warn)}
+  footer{margin-top:36px;border-top:1px solid var(--line);padding-top:16px;font-size:.75rem;color:var(--dim);line-height:1.8}
+  footer a{color:var(--dim-line)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Development Dialogue Log · 2026-07-07</div>
+    <h1>格狀鉸鏈設計推論系統 — 開發對話紀錄</h1>
+    <p class="sub">一天之內由 8 輪人機對話從 Rev.A 演進到 Rev.H 的完整紀錄。工具本體：<a href="./">lattice-hinge-designer</a>。每輪記錄「使用者提問 → 分析發現 → 修改 → 驗證方法」，供教學與開發方法參考。</p>
+    <p class="meta">開發協作：Henry（生活科技教師）× Claude Fable（Claude Code）＋ Claude app（v2 功能原稿）</p>
+  </header>
+
+  <div class="round">
+    <div class="round-head"><span class="rev">Rev.A</span><h2>閱讀評估與首次部署</h2><span class="commit">5fe6b79 · 18:36</span></div>
+    <div class="round-body">
+      <div class="q"><span class="who">USER</span>幫我閱讀一下這個內容，並評估內容正確性再部署到 Pages 上。</div>
+      <div class="sec"><b class="tag">分析與發現</b><ul>
+        <li>原稿為 AI 產生的單檔計算器（Fenner 扭轉連桿模型）。矩形扭轉係數表與 Timoshenko 標準值完全一致、主公式 <code>n ≥ (β/α)·Θ·G·b/(τ_allow·l)</code> 推導正確、材料參數在合理範圍。</li>
+        <li class="bug"><b>Bug①切割線 off-by-one</b>：m 條交錯切線只形成 m−1 個串聯扭轉連桿（最外側料帶與實體板連續不扭轉），原稿畫 n−1 條實際只有 n−2 個有效連桿，成品彎不到目標角。</li>
+        <li class="bug"><b>Bug②干涉角二分法失效</b>：投影寬度 <code>w·cosθ+t·sinθ</code> 非單調，w≫t 時二分法跳過干涉區、把限制角錯算成 90°。</li>
+        <li class="fix">修法：切線改畫 n+1 條（含格狀區兩端，恰使 W=n·(w+k) 幾何自洽）；干涉角改線性掃描找第一個違反角。</li>
+      </ul></div>
+      <div class="sec"><b class="tag">驗證</b><ul>
+        <li>預設參數手算核對全部吻合（n=23、θ=3.91°、τ=19.7 MPa、R 值）；w=10/t=3 極端案例干涉角實測 4.35°（解析解 4.38°）。部署 GitHub Pages 後線上驗證。</li>
+      </ul></div>
+    </div>
+  </div>
+
+  <div class="round">
+    <div class="round-head"><span class="rev">Rev.B</span><h2>第二輪深度修正</h2><span class="commit">864faa5 · 18:46</span></div>
+    <div class="round-body">
+      <div class="q"><span class="who">USER</span>請針對內容錯誤進行修正與優化。</div>
+      <div class="sec"><b class="tag">分析與發現</b><ul>
+        <li class="bug"><b>Bug③十字圖樣會把板切斷</b>：十字間距 5.12mm 小於水平臂長 9.6mm，同列水平切線相連成貫穿線。</li>
+        <li class="bug"><b>Bug④受扭長度短少</b>：切段長 2l、交錯半週期後切縫重疊區只有 l−gap/2（9.75mm 而非假設的 12mm），應力低估約 23%。</li>
+        <li class="fix">修法：十字間距改臂長+junction；切段長改 <code>2l+gap</code> 使重疊區恰為 l。另加內彎半徑&lt;板厚警告、輸入清空防呆、SVG 內嵌參數註解。</li>
+      </ul></div>
+    </div>
+  </div>
+
+  <div class="round">
+    <div class="round-head"><span class="rev">Rev.C</span><h2>合併 Claude app 的 v2 功能</h2><span class="commit">18f740f · 18:56</span></div>
+    <div class="round-body">
+      <div class="q"><span class="who">USER</span>（貼上 Claude app 的 v2 完工回覆）v2 加入斜向 45°、Auxetic 旋轉方塊、變半徑設計器。</div>
+      <div class="sec"><b class="tag">分析與發現</b><ul>
+        <li class="bug"><b>v2 由 v1 衍生，Rev.B 的六處修正全數被退回</b>——逐一重新套用。</li>
+        <li class="bug">變半徑設計器每列容許角只看應力、漏了幾何干涉（預設壓克力恰為幾何控制）；首列位置同樣 off-by-one。</li>
+        <li>新功能審查：Auxetic 伸展率公式 <code>L(θ)/L₀=cos(θ/2)+sin(θ/2)</code> 與 Grima &amp; Evans 模型一致；app 宣稱的「Fenner 論文 23 桿/44mm 基準」查無出處，判定為幻覺，未寫入任何檔案。</li>
+      </ul></div>
+      <div class="lesson"><b>教訓：</b>AI 產生器的新版本是從舊原稿衍生的，先前修過的 bug 會全部回歸——合併前必須逐一重查，之後的新版要以線上修正版為基底。</div>
+    </div>
+  </div>
+
+  <div class="round">
+    <div class="round-head"><span class="rev">Rev.D</span><h2>使用者質疑「會切斷」＋雷射切割機變因</h2><span class="commit">f1a6e51 · 19:22</span></div>
+    <div class="round-body">
+      <div class="q"><span class="who">USER</span>這些內容再幫我確認一下好嗎？怎麼覺得會切斷？是否有辦法加入雷射切割機的變因？</div>
+      <div class="sec"><b class="tag">分析與發現</b><ul>
+        <li class="bug"><b>使用者直覺正確——Bug⑤真的會切斷</b>：H ≤ 切段長 2l+gap 時（如 H=20 配預設 l=12），相位對齊的切線單段貫穿整個鉸鏈長，板材直接分離。</li>
+        <li class="fix">修法：繪圖時自動在中央保留 junction＋警告旗標（直線/波浪/變半徑/試片四處同步）。</li>
+        <li class="fix"><b>新功能</b>：切割機選單（CO₂ 60-80W／30-40W／二極體／自訂）依機型×材料自動帶建議 kerf 與切邊熱影響折減 η（τ_allow = τ_y × 上限% × η）；kerf 校正試片 SVG 匯出（20mm 方塊量測＋迷你鉸鏈試彎）。</li>
+      </ul></div>
+    </div>
+  </div>
+
+  <div class="round">
+    <div class="round-head"><span class="rev">Rev.E</span><h2>旋轉方塊嚴格驗證＋DXF 匯出</h2><span class="commit">33360f4 · 19:35</span></div>
+    <div class="round-body">
+      <div class="q"><span class="who">USER</span>旋轉方塊的方式，確定不會切斷嗎？另外有辦法輸出為 DXF 嗎？</div>
+      <div class="sec"><b class="tag">分析與發現</b><ul>
+        <li><b>驗證方法升級</b>：0.1mm 像素化＋淹水填充直接數連通元件（不靠推理）。Auxetic 預設＝1 件不切斷；h=k 時碎成 102 件；六種圖樣主體皆單一連通；長孔 69 件＝1 主體＋68 落料（挖除式正常）。</li>
+        <li class="bug">幾何事實：每個角隅節點必有一條切線穿過，鉸鏈被剖成兩條韌帶，<b>有效寬度=(h−k)/2 每側</b>（預設只剩 0.5mm）——加 h≤k 紅旗、韌帶&lt;0.3mm 黃旗。</li>
+        <li class="fix"><b>新功能</b>：DXF R12 匯出（LINE 實體、CUT/OUTLINE 分層、$INSUNITS=mm，貝茲/圓弧自動展折線）。</li>
+      </ul></div>
+    </div>
+  </div>
+
+  <div class="round">
+    <div class="round-head"><span class="rev">Rev.F</span><h2>DXF 逆向分析（可行性檢查）</h2><span class="commit">427d6f3 · 19:46</span></div>
+    <div class="round-body">
+      <div class="q"><span class="who">USER</span>（附 Onshape 匯出的 laser33050mm.dxf）像是這個，有辦法用它判斷輸出的可行性嗎？</div>
+      <div class="sec"><b class="tag">分析與發現</b><ul>
+        <li>實測該檔：330×50mm、109 欄、pitch 3、有效連桿長 5、n=108。判定：不會切斷；3mm 合板反覆用約 63°（R≥293mm）、壓克力靜態最多約 314°。</li>
+        <li>抓到四個製造品質問題：junction 2.5mm 偏小、邊軌 3mm 偏窄、切線超出外框 5mm、55 條線壓在頂邊長線上（二次燒切）。</li>
+        <li class="fix"><b>新功能</b>：DXF 匯入（瀏覽器本機解析）→ 自動偵測格狀參數 → 依面板設定即時推算可行性 → 淹水填充切斷檢查＋品質警告。範例檔收錄於 <code>examples/laser33050mm.dxf</code>。</li>
+      </ul></div>
+      <div class="lesson"><b>細節：</b>外框判定要用水平框線先定出外形高度——切線超出外框時，整體 bbox 高度會把 50mm 框邊誤認成切線欄。</div>
+    </div>
+  </div>
+
+  <div class="round">
+    <div class="round-head"><span class="rev">Rev.G</span><h2>DXF 佈線：在匯入圖上加入切割線圖</h2><span class="commit">69966df · 23:31</span></div>
+    <div class="round-body">
+      <div class="q"><span class="who">USER</span>有辦法匯入 DXF，然後在系統上加入切割的線圖嗎？（選擇圖樣、延伸的距離、幾段、相對距離，然後輸出）</div>
+      <div class="sec"><b class="tag">實作</b><ul>
+        <li>匯入工件後佈置鉸鏈帶：六種圖樣、縱/橫方向、起點、延伸寬度、段數、段間距、留邊；切線參數沿用面板，改參數即時重算。</li>
+        <li>即時預覽（藍=原圖、紅=新增），扭轉式圖樣推算每段/合計可彎角；合成後一鍵切斷檢查。</li>
+        <li>輸出合成 DXF（ORIGINAL/HINGE 分層）與 SVG。實作要點：以合成參數呼叫既有 <code>buildCuts</code> 再平移/轉向到工件座標，六種圖樣零重寫共用。</li>
+      </ul></div>
+    </div>
+  </div>
+
+  <div class="round">
+    <div class="round-head"><span class="rev">Rev.H</span><h2>3D 彎折模擬</h2><span class="commit">9039822 · 23:49</span></div>
+    <div class="round-body">
+      <div class="q"><span class="who">USER</span>既然有彎折，是否有辦法在調整參數時產生 3D 模擬圖？</div>
+      <div class="sec"><b class="tag">實作</b><ul>
+        <li>彎折形狀＝「平板—圓弧—平板」可展曲面，由推論結果 W/R/Θ 完全決定 → 手寫 canvas 3D 渲染器（畫家排序＋法向量光照，零外部函式庫）。</li>
+        <li>拖曳旋轉視角（行動裝置可用）、彎折程度滑桿 0→Θ 展開動畫、切割線經同一映射貼合曲面、調參即時重繪。</li>
+        <li>誠實邊界：扭轉式圖樣為精確幾何；十字/Auxetic 混合圖樣以圓柱面近似並於頁面標注。</li>
+      </ul></div>
+    </div>
+  </div>
+
+  <footer>
+    <b>方法論小結</b>：①AI 產出必逐項驗證（手算核對公式、極端參數測邊界）；②「會不會切斷」這類物理問題用像素化淹水填充直接證明，不靠推理；③AI 生成器的新版本會讓舊修正回歸，合併前重查；④宣稱的文獻對照（如「Fenner 論文基準」）先查證再引用，避免循環論證。<br>
+    工具：<a href="./">格狀鉸鏈設計推論系統</a> · 原始碼：<a href="https://github.com/henrychao521/lattice-hinge-designer">github.com/henrychao521/lattice-hinge-designer</a> · MIT License
+  </footer>
+</div>
+</body>
+</html>
