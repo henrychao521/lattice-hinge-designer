@@ -119,7 +119,7 @@
 <div class="wrap">
   <header>
     <div class="eyebrow">Laser Kerf Bending · Torsional Link Model</div>
-    <h1>格狀鉸鏈設計推論系統<span class="en">LATTICE HINGE DESIGN CALCULATOR — Rev.G</span></h1>
+    <h1>格狀鉸鏈設計推論系統<span class="en">LATTICE HINGE DESIGN CALCULATOR — Rev.H</span></h1>
     <p class="sub">依據 Patrick Fenner（Deferred Procrastination, 2011–2012）的扭轉連桿模型：輸入材料與幾何參數，反推最少連桿數、彎折半徑與應力狀態，並產生可直接雷射切割的 SVG 檔。</p>
   </header>
 
@@ -223,6 +223,16 @@
           <button class="act ghost" id="dlCoupon">下載 kerf 校正試片 SVG</button>
         </div>
         <p class="hint" style="margin-top:8px">校正試片用法：① 切下後量「方孔寬 − 落下方塊寬」÷ 2 = 你機器的實際 kerf，回填上方 k；② 徒手彎折右側迷你鉸鏈，檢查連桿強度與切邊碳化，據以調整熱影響折減 η。</p>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <h2>3D 彎折模擬</h2>
+        <p class="patnote">依目前推論結果（W、R、Θ）即時模擬彎折後的立體形狀：<b>拖曳旋轉視角</b>，滑桿控制彎折程度，切割線同步貼在曲面上。扭轉式圖樣為精確幾何；十字／Auxetic 等混合圖樣以相同圓柱面近似，僅供視覺參考。</p>
+        <div class="preview">
+          <canvas id="sim3d" style="display:block;width:100%;height:auto;touch-action:none;cursor:grab"></canvas>
+        </div>
+        <label><b>彎折程度</b>（0 → Θ）<span class="rangeval" id="foldVal"></span></label>
+        <input type="range" id="fold" min="0" max="100" step="1" value="100">
       </div>
 
       <div class="card" style="margin-top:18px">
@@ -451,6 +461,7 @@ function render(){
       <span class="formula">R_center = W/Θ = ${fmt(c.Rc)} mm，R_in = ${fmt(c.Rin)}，R_out = ${fmt(c.Rout)} mm</span></div>`;
 
   drawPreview();
+  draw3D();
   computeVar();
   if(dxfState){ analyzeDXF(); if(dxfGen) computeZones(); }   // 參數變動時 DXF 分析與佈線即時重算
 }
@@ -614,6 +625,83 @@ function svgDoc(pat,c,forLaser){
 function drawPreview(){
   $("preview").innerHTML=svgDoc(currentPattern,lastCalc,false);
   $("patnote").innerHTML=PATTERNS.find(p=>p.id===currentPattern).note;
+}
+
+/* ================= 3D 彎折模擬 ================= */
+const V3D={yaw:-0.7,pitch:0.5,fold:1,drag:null};
+function profileAt(s,c,fold){
+  // 展開座標 s → 側面輪廓（平板—圓弧—平板），x0=15 與 buildCuts 一致
+  const m=15, W=c.W, Theta=Math.max(c.Theta*fold,0);
+  if(Theta<1e-4) return {x:s,z:0,ang:0};
+  const R=W/Theta;
+  if(s<=m) return {x:s,z:0,ang:0};
+  if(s<=m+W){const phi=(s-m)/R;return {x:m+Math.sin(phi)*R,z:(1-Math.cos(phi))*R,ang:phi};}
+  const ex=m+Math.sin(Theta)*R, ez=(1-Math.cos(Theta))*R, d=s-m-W;
+  return {x:ex+Math.cos(Theta)*d,z:ez+Math.sin(Theta)*d,ang:Theta};
+}
+function draw3D(){
+  const c=lastCalc, cv=$("sim3d"); if(!c||!cv||!cv.clientWidth) return;
+  const dpr=window.devicePixelRatio||1;
+  const CW=cv.width=Math.round(cv.clientWidth*dpr), CH=cv.height=Math.round(CW*0.52);
+  const ctx=cv.getContext('2d');
+  const fold=V3D.fold, devLen=c.W+30, H=c.H;
+  const cy=Math.cos(V3D.yaw),sy=Math.sin(V3D.yaw),cp=Math.cos(V3D.pitch),sp=Math.sin(V3D.pitch);
+  const pm=profileAt(devLen/2,c,fold), pa=profileAt(0,c,fold), pb=profileAt(devLen,c,fold);
+  const ctrX=(pa.x+pb.x+pm.x)/3, ctrZ=(pa.z+pb.z+pm.z)/3;
+  const proj=(x,y,z)=>{
+    x-=ctrX;y-=H/2;z-=ctrZ;
+    const x1=x*cy+y*sy, y1=-x*sy+y*cy;
+    return {sx:x1, sy:-z*cp+y1*sp, d:y1*cp+z*sp};
+  };
+  // 自動縮放置中
+  let mnx=1e9,mxx=-1e9,mny=1e9,mxy=-1e9;
+  for(let i=0;i<=24;i++)for(const yy of [0,H]){
+    const p=profileAt(devLen*i/24,c,fold), q=proj(p.x,yy,p.z);
+    mnx=Math.min(mnx,q.sx);mxx=Math.max(mxx,q.sx);mny=Math.min(mny,q.sy);mxy=Math.max(mxy,q.sy);
+  }
+  const sc=Math.min(CW/(mxx-mnx+40),CH/(mxy-mny+40));
+  const ox=CW/2-sc*(mnx+mxx)/2, oy=CH/2-sc*(mny+mxy)/2;
+  const S=(x,y,z)=>{const q=proj(x,y,z);return {x:ox+sc*q.sx,y:oy+sc*q.sy,d:q.d};};
+  ctx.fillStyle='#0F2A4E';ctx.fillRect(0,0,CW,CH);
+  // 曲面網格（畫家排序＋簡易光照）
+  const NS=72,NY=6,quads=[];
+  const L=[0.35,-0.5,0.8], ll=Math.hypot(L[0],L[1],L[2]);
+  for(let i=0;i<NS;i++)for(let j=0;j<NY;j++){
+    const s0=devLen*i/NS,s1=devLen*(i+1)/NS,y0=H*j/NY,y1=H*(j+1)/NY;
+    const p0=profileAt(s0,c,fold),p1=profileAt(s1,c,fold);
+    const q=[S(p0.x,y0,p0.z),S(p1.x,y0,p1.z),S(p1.x,y1,p1.z),S(p0.x,y1,p0.z)];
+    const ang=(p0.ang+p1.ang)/2, n=[-Math.sin(ang),0,Math.cos(ang)];
+    const lam=Math.abs(n[0]*L[0]+n[1]*L[1]+n[2]*L[2])/ll;
+    quads.push({q,d:(q[0].d+q[1].d+q[2].d+q[3].d)/4,lam});
+  }
+  quads.sort((a,b)=>a.d-b.d);
+  quads.forEach(({q,lam})=>{
+    ctx.beginPath();ctx.moveTo(q[0].x,q[0].y);
+    for(let i=1;i<4;i++)ctx.lineTo(q[i].x,q[i].y);
+    ctx.closePath();
+    const b=110+120*lam;   // 木色調
+    ctx.fillStyle=`rgb(${Math.round(b*0.98)},${Math.round(b*0.76)},${Math.round(b*0.5)})`;
+    ctx.fill();
+    ctx.strokeStyle='rgba(13,35,64,.22)';ctx.lineWidth=0.6;ctx.stroke();
+  });
+  // 切割線貼到曲面
+  ctx.strokeStyle='rgba(230,45,30,.85)';
+  ctx.lineWidth=Math.max(1,sc*0.12);ctx.lineCap='round';
+  buildCuts(currentPattern,c).cuts.slice(0,1500).forEach(d=>{
+    pathToPolys(d).forEach(p=>{
+      ctx.beginPath();
+      p.forEach(([px,py],i)=>{
+        const pr=profileAt(px,c,fold), q=S(pr.x,py,pr.z);
+        i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y);
+      });
+      ctx.stroke();
+    });
+  });
+  // 標註
+  ctx.fillStyle='#8FB2D9';
+  ctx.font=`${Math.round(Math.max(11,CW*0.02))}px "IBM Plex Mono",monospace`;
+  const Rtxt=fold>0.02?fmt(c.W/(c.Theta*fold)-c.t/2)+'mm':'∞';
+  ctx.fillText(`Θ = ${(c.ThetaDeg*fold).toFixed(0)}°   R_in = ${Rtxt}`,12*dpr,CH-12*dpr);
 }
 
 /* ================= 變半徑設計器 ================= */
@@ -1147,8 +1235,27 @@ function init(){
   $("tabs").addEventListener("click",e=>{
     const b=e.target.closest(".tab");if(!b)return;
     document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
-    b.classList.add("on");currentPattern=b.dataset.p;drawPreview();
+    b.classList.add("on");currentPattern=b.dataset.p;drawPreview();draw3D();
   });
+
+  // 3D 模擬互動
+  $("fold").addEventListener("input",()=>{
+    V3D.fold=+$("fold").value/100;
+    $("foldVal").textContent=" "+$("fold").value+"%";
+    draw3D();
+  });
+  $("foldVal").textContent=" 100%";
+  const cv3=$("sim3d");
+  cv3.addEventListener("pointerdown",e=>{V3D.drag=[e.clientX,e.clientY];cv3.setPointerCapture(e.pointerId);e.preventDefault();});
+  cv3.addEventListener("pointermove",e=>{
+    if(!V3D.drag)return;
+    V3D.yaw+=(e.clientX-V3D.drag[0])*0.008;
+    V3D.pitch=Math.max(-1.45,Math.min(1.45,V3D.pitch+(e.clientY-V3D.drag[1])*0.008));
+    V3D.drag=[e.clientX,e.clientY];
+    draw3D();
+  });
+  cv3.addEventListener("pointerup",()=>V3D.drag=null);
+  window.addEventListener("resize",draw3D);
 
   ["G","tau","t","w","l","kerf","theta","H","auxA","auxH"].forEach(id=>$(id).addEventListener("input",calc));
 
