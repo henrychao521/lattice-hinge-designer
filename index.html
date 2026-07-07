@@ -119,7 +119,7 @@
 <div class="wrap">
   <header>
     <div class="eyebrow">Laser Kerf Bending · Torsional Link Model</div>
-    <h1>格狀鉸鏈設計推論系統<span class="en">LATTICE HINGE DESIGN CALCULATOR — Rev.A</span></h1>
+    <h1>格狀鉸鏈設計推論系統<span class="en">LATTICE HINGE DESIGN CALCULATOR — Rev.B</span></h1>
     <p class="sub">依據 Patrick Fenner（Deferred Procrastination, 2011–2012）的扭轉連桿模型：輸入材料與幾何參數，反推最少連桿數、彎折半徑與應力狀態，並產生可直接雷射切割的 SVG 檔。</p>
   </header>
 
@@ -263,6 +263,8 @@ function calc(){
   const t=+$("t").value, w=+$("w").value, l=+$("l").value,
         k=+$("kerf").value, G=+$("G").value, tauY=+$("tau").value,
         r=+$("ratio").value/100, ThetaDeg=+$("theta").value, H=+$("H").value;
+  // 欄位清空或非法值時不計算，保留上一次有效結果
+  if(![t,w,l,k,G,tauY,ThetaDeg,H].every(v=>Number.isFinite(v)&&v>0)) return;
   const Theta=ThetaDeg*Math.PI/180;
   const tauA=tauY*r;
 
@@ -316,6 +318,7 @@ function render(){
   else if(util<=0.6) flags.push(["warn",`工作應力為降伏應力的 ${fmt(util*100,0)}% — 適合靜態定型彎折，反覆開合有斷裂風險。`]);
   else flags.push(["bad",`工作應力達降伏應力的 ${fmt(util*100,0)}% — 極可能在彎折時斷裂，請增加 n 或加長 l。`]);
   if(c.l > 4*c.t) flags.push(["warn",`連桿長度 l = ${c.l}mm 超過板厚 4 倍（${4*c.t}mm）— Fenner 實測易發生邊緣外翻斷裂，建議縮短。`]);
+  if(c.Rin < c.t) flags.push(["bad",`內彎半徑 R_in = ${fmt(c.Rin)}mm 小於板厚 ${c.t}mm — 彎折處近乎對折，內側纖維會壓潰，請增加 w、k 或減小 Θ。`]);
   if(c.nGeo > c.nStress) flags.push(["warn",`幾何干涉為控制條件（n_geo=${c.nGeo} > n_stress=${c.nStress}）：單刀切縫下相鄰連桿角部會互碰，已自動採用較大值。`]);
   const mat=MATERIALS.find(m=>m.id===$("mat").value);
   if(["plywood","mdf","solid"].includes(mat.id)) flags.push(["warn","木質材料之 G 與 τ 為粗估參考值，請以 3–5 片試片實測校正後回填。"]);
@@ -348,7 +351,8 @@ function buildCuts(pat,c){
   const cuts=[];
   const x0=15;                       // 兩側留 15mm 實體
   const pitch=c.w+c.k;
-  const seg=2*c.l, gap=Math.max(3,1.5*c.t);   // 切段長 / junction
+  const gap=Math.max(3,1.5*c.t);     // junction 長
+  const seg=2*c.l+gap;               // 切段長：交錯半週期後相鄰列切縫重疊區恰為連桿長 l
   const period=seg+gap;
   const H=c.H;
 
@@ -378,7 +382,7 @@ function buildCuts(pat,c){
   }
   else if(pat==="cross"){
     const arm=c.l*0.8;
-    const px=pitch*1.6, py=arm+gap;
+    const px=arm+gap, py=arm+gap;    // 同列間距須大於臂長，否則水平切線相連會把板切斷
     let row=0;
     for(let y=py/2;y<H;y+=py){
       const off=(row%2)?px/2:0; row++;
@@ -424,8 +428,10 @@ function svgDoc(pat,c,forLaser){
       <text x="${x0+c.W/2}" y="${H+11}" font-size="4.2" fill="#6FC7FF" text-anchor="middle" font-family="IBM Plex Mono,monospace">W = ${fmt(c.W)} mm · n = ${c.n} · R_in = ${fmt(c.Rin)} mm</text>`;
   }
   const border=`<rect x="0.2" y="0.2" width="${totalW-0.4}" height="${H-0.4}" fill="none" stroke="${forLaser?"#0000FF":"rgba(158,197,255,.5)"}" stroke-width="${sw}"/>`;
+  const meta=forLaser?`<!-- lattice-hinge-designer Rev.B | pattern=${pat} | t=${c.t} w=${c.w} l=${c.l} k=${c.k} mm | n=${c.n} Theta=${c.ThetaDeg}deg | G=${c.G}MPa tau_allow=${c.tauA.toFixed(1)}MPa | W=${c.W.toFixed(1)} R_in=${c.Rin.toFixed(1)} R_out=${c.Rout.toFixed(1)} mm | red=cut blue=outline -->
+`:"";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}mm" height="${forLaser?H:H+14}mm" viewBox="0 ${forLaser?0:-2} ${totalW} ${forLaser?H:H+16}">
-    ${extra}${border}
+    ${meta}${extra}${border}
     <g fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-linecap="round">
       ${cuts.map(d=>`<path d="${d}"/>`).join("\n")}
     </g></svg>`;
