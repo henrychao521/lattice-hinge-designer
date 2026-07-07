@@ -119,7 +119,7 @@
 <div class="wrap">
   <header>
     <div class="eyebrow">Laser Kerf Bending · Torsional Link Model</div>
-    <h1>格狀鉸鏈設計推論系統<span class="en">LATTICE HINGE DESIGN CALCULATOR — Rev.F</span></h1>
+    <h1>格狀鉸鏈設計推論系統<span class="en">LATTICE HINGE DESIGN CALCULATOR — Rev.G</span></h1>
     <p class="sub">依據 Patrick Fenner（Deferred Procrastination, 2011–2012）的扭轉連桿模型：輸入材料與幾何參數，反推最少連桿數、彎折半徑與應力狀態，並產生可直接雷射切割的 SVG 檔。</p>
   </header>
 
@@ -246,6 +246,35 @@
         <input type="file" id="dxfFile" accept=".dxf" style="font-size:.85rem;color:var(--dim);max-width:100%">
         <div class="results" id="dxfStats" style="margin-top:12px"></div>
         <div id="dxfFlags"></div>
+
+        <div id="dxfPlace" style="display:none;margin-top:16px;border-top:1px solid var(--line);padding-top:14px">
+          <h2>在匯入圖上加入切割線圖</h2>
+          <p class="patnote">在工件上佈置鉸鏈帶：選圖樣與方向，設定起點、延伸寬度、段數與段間距。切線參數（w、l、k、junction）沿用左側面板；預覽中<b>藍＝匯入原圖、紅＝新增切線</b>。佈完建議按「切斷檢查」再輸出。</p>
+          <div class="row2">
+            <div><label><b>圖樣</b></label><select id="zPat"></select></div>
+            <div><label><b>方向</b></label><select id="zDir">
+              <option value="v">縱向切線（工件左右彎）</option>
+              <option value="h">橫向切線（工件上下彎）</option></select></div>
+          </div>
+          <div class="row2">
+            <div><label><b>起點（相對工件邊）</b><span class="sym">mm</span></label><input type="number" id="zStart" value="20" step="1"></div>
+            <div><label><b>延伸寬度</b><span class="sym">mm</span></label><input type="number" id="zWidth" value="40" step="1" min="5"></div>
+          </div>
+          <div class="row2">
+            <div><label><b>段數</b></label><input type="number" id="zCount" value="1" step="1" min="1" max="20"></div>
+            <div><label><b>段間距（起點到起點）</b><span class="sym">mm</span></label><input type="number" id="zGap" value="60" step="1"></div>
+          </div>
+          <label><b>帶兩端留邊</b><span class="sym">mm</span></label>
+          <input type="number" id="zMargin" value="5" step="1" min="0">
+          <div class="preview" id="zPreview" style="margin-top:12px"></div>
+          <div class="results" id="zStats" style="margin-top:12px"></div>
+          <div id="zFlags"></div>
+          <div class="btnrow">
+            <button class="act" id="zDlDxf">下載合成 DXF</button>
+            <button class="act ghost" id="zDlSvg">下載合成 SVG</button>
+            <button class="act ghost" id="zCheck">切斷檢查</button>
+          </div>
+        </div>
       </div>
 
       <footer>
@@ -423,7 +452,7 @@ function render(){
 
   drawPreview();
   computeVar();
-  if(dxfState) analyzeDXF();   // 材料/機台參數變動時，DXF 力學推算即時重算
+  if(dxfState){ analyzeDXF(); if(dxfGen) computeZones(); }   // 參數變動時 DXF 分析與佈線即時重算
 }
 
 /* ================= SVG 圖樣產生 ================= */
@@ -924,6 +953,80 @@ function analyzeDXF(){
   show(stats);
 }
 
+/* ================= DXF 佈線（在匯入圖上加入切割線圖） ================= */
+let dxfGen=null;
+function computeZones(){
+  const st=dxfState; if(!st||!st.lines.length||!lastCalc){dxfGen=null;return;}
+  const zp={pat:$("zPat").value, dir:$("zDir").value,
+    start:+$("zStart").value, width:+$("zWidth").value,
+    count:Math.max(1,Math.round(+$("zCount").value||1)),
+    gap:+$("zGap").value, margin:+$("zMargin").value};
+  if(![zp.start,zp.width,zp.gap,zp.margin].every(v=>Number.isFinite(v))) return;
+  const c=lastCalc, pitch=c.w+c.k;
+  const xs=st.lines.flatMap(l=>[l[0],l[2]]), ys=st.lines.flatMap(l=>[l[1],l[3]]);
+  const bx0=Math.min(...xs),bx1=Math.max(...xs),by0=Math.min(...ys),by1=Math.max(...ys);
+  const flags=[], segsAll=[], zones=[];
+  // 帶（沿切線方向）的範圍：縱向=工件全高、橫向=工件全寬，各留邊
+  const bandLo=(zp.dir==='v'?by0:bx0)+zp.margin;
+  const bandHi=(zp.dir==='v'?by1:bx1)-zp.margin;
+  const Hz=bandHi-bandLo;
+  const partLen=(zp.dir==='v'?bx1-bx0:by1-by0);
+  if(Hz<10){
+    flags.push(["bad","留邊後鉸鏈帶高度不足 10mm，無法佈線。"]);
+    dxfGen={segs:[],flags,zones:[],bx0,bx1,by0,by1}; drawZonePreview(); return;
+  }
+  const cols=Math.max(1,Math.round(zp.width/pitch));
+  const span=cols*pitch;
+  // 以合成參數呼叫既有圖樣產生器（局部座標 x∈[15,15+span]、y∈[0,Hz]），再平移/轉向到工件座標
+  const cc={...c, n:cols, W:span, H:Hz};
+  const polys=[];
+  buildCuts(zp.pat,cc).cuts.forEach(d=>pathToPolys(d).forEach(p=>polys.push(p)));
+  for(let z=0;z<zp.count;z++){
+    const off=zp.start+z*zp.gap;
+    if(off<0||off+span>partLen+0.01){
+      flags.push(["warn",`第 ${z+1} 段（起點 ${fmt(off,0)}、寬 ${fmt(span)}mm）超出工件（${fmt(partLen,0)}mm），已略過。`]);
+      continue;
+    }
+    if(z===1&&zp.gap<span) flags.push(["warn","段間距小於延伸寬度，相鄰段會重疊。"]);
+    polys.forEach(p=>{
+      for(let i=1;i<p.length;i++){
+        const lx1=p[i-1][0]-15, ly1=p[i-1][1], lx2=p[i][0]-15, ly2=p[i][1];
+        if(zp.dir==='v') segsAll.push([bx0+off+lx1, bandLo+ly1, bx0+off+lx2, bandLo+ly2]);
+        else             segsAll.push([bandLo+ly1, by0+off+lx1, bandLo+ly2, by0+off+lx2]);
+      }
+    });
+    zones.push(off);
+  }
+  // 可彎角度（扭轉主導圖樣才有封閉解）
+  let mech=null;
+  if(["straight","wave","diag45"].includes(zp.pat)){
+    const th=Math.min(c.thetaStress, c.thetaGeo);
+    mech={per:cols*th, total:zones.length*cols*th};
+  }
+  dxfGen={segs:segsAll,flags,zones,cols,span,Hz,mech,bx0,bx1,by0,by1,dir:zp.dir,pat:zp.pat};
+  drawZonePreview();
+}
+function drawZonePreview(){
+  const st=dxfState,g=dxfGen; if(!st||!g) return;
+  const pad=3, W=g.bx1-g.bx0+2*pad, H=g.by1-g.by0+2*pad;
+  const map=(x,y)=>[(x-g.bx0+pad),(g.by1-y+pad)];   // DXF y 向上 → SVG y 向下
+  const seg2l=s=>{const[a,b]=map(s[0],s[1]),[c2,d]=map(s[2],s[3]);
+    return `<line x1="${a.toFixed(2)}" y1="${b.toFixed(2)}" x2="${c2.toFixed(2)}" y2="${d.toFixed(2)}"/>`;};
+  $("zPreview").innerHTML=`<svg viewBox="0 0 ${W.toFixed(1)} ${H.toFixed(1)}">
+    <rect width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="#152C4E"/>
+    <g stroke="#6FC7FF" stroke-width="${Math.max(0.1,W/900).toFixed(3)}" opacity=".55" fill="none">${st.lines.slice(0,6000).map(seg2l).join("")}</g>
+    <g stroke="#FF6B57" stroke-width="${Math.max(0.12,W/700).toFixed(3)}" fill="none">${g.segs.slice(0,9000).map(seg2l).join("")}</g>
+  </svg>`;
+  const stats=[["每段切線欄數",(g.cols||0)+1,"cols"],["每段實際寬",fmt(g.span||0),"mm"],
+               ["鉸鏈帶高",fmt(g.Hz||0),"mm"],["佈出段數",g.zones.length,""]];
+  if(g.mech){
+    stats.push(["每段可彎",fmt(g.mech.per*180/Math.PI,0),"°"]);
+    stats.push(["合計可彎",fmt(g.mech.total*180/Math.PI,0),"°"]);
+  }
+  $("zStats").innerHTML=stats.map(([kk,vv,u])=>`<div class="stat"><div class="k">${kk}</div><div class="v">${vv}<small>${u||""}</small></div></div>`).join("");
+  $("zFlags").innerHTML=g.flags.map(([cl,tx])=>`<div class="flag ${cl}"><span class="dot"></span><span>${tx}</span></div>`).join("");
+}
+
 /* ================= kerf 校正試片 ================= */
 function couponSvg(){
   const c=lastCalc;
@@ -1080,8 +1183,51 @@ function init(){
   $("dxfFile").addEventListener("change",e=>{
     const f=e.target.files[0]; if(!f) return;
     const r=new FileReader();
-    r.onload=()=>{ dxfState={...parseDXFLines(r.result), conn:null, name:f.name}; analyzeDXF(); };
+    r.onload=()=>{
+      dxfState={...parseDXFLines(r.result), conn:null, name:f.name};
+      analyzeDXF();
+      $("dxfPlace").style.display=dxfState.lines.length?"block":"none";
+      computeZones();
+    };
     r.readAsText(f);
+  });
+
+  // 佈線控制
+  $("zPat").innerHTML=PATTERNS.map(p=>`<option value="${p.id}">${p.name}</option>`).join("");
+  ["zPat","zDir","zStart","zWidth","zCount","zGap","zMargin"].forEach(id=>$(id).addEventListener("input",computeZones));
+  $("zCheck").addEventListener("click",()=>{
+    const st=dxfState,g=dxfGen; if(!st||!g) return;
+    const all=[...st.lines,...g.segs];
+    let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+    all.forEach(l=>{x0=Math.min(x0,l[0],l[2]);x1=Math.max(x1,l[0],l[2]);y0=Math.min(y0,l[1],l[3]);y1=Math.max(y1,l[1],l[3]);});
+    const conn=dxfConnectivity(all,x0,y0,x1,y1,lastCalc.k);
+    g.flags=g.flags.filter(f=>!f[1].startsWith("連通性"));
+    g.flags.unshift(conn.pieces>1
+      ?["bad",`連通性（${conn.res}mm 淹水填充）：合成後分離成 ${conn.pieces} 件 — 佈線把工件切斷了（或含刻意落料/內孔）。`]
+      :["ok",`連通性（${conn.res}mm 淹水填充）：合成後本體單一連通，不會切斷。`]);
+    drawZonePreview();
+  });
+  $("zDlDxf").addEventListener("click",()=>{
+    const st=dxfState,g=dxfGen; if(!st||!g||!g.segs.length) return;
+    let s="0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n";
+    const emit=(x1,y1,x2,y2,layer,col)=>{s+=`0\nLINE\n8\n${layer}\n62\n${col}\n10\n${x1.toFixed(3)}\n20\n${y1.toFixed(3)}\n11\n${x2.toFixed(3)}\n21\n${y2.toFixed(3)}\n`;};
+    st.lines.forEach(l=>emit(l[0],l[1],l[2],l[3],"ORIGINAL",7));
+    g.segs.forEach(l=>emit(l[0],l[1],l[2],l[3],"HINGE",1));
+    s+="0\nENDSEC\n0\nEOF\n";
+    download(`${st.name.replace(/\.dxf$/i,"")}_hinge.dxf`,s,"application/dxf");
+  });
+  $("zDlSvg").addEventListener("click",()=>{
+    const st=dxfState,g=dxfGen; if(!st||!g||!g.segs.length) return;
+    const pad=2,W=g.bx1-g.bx0+2*pad,H=g.by1-g.by0+2*pad;
+    const map=(x,y)=>[(x-g.bx0+pad).toFixed(3),(g.by1-y+pad).toFixed(3)];
+    const mk=list=>list.map(s2=>{const[a,b]=map(s2[0],s2[1]),[c2,d]=map(s2[2],s2[3]);
+      return `<line x1="${a}" y1="${b}" x2="${c2}" y2="${d}"/>`;}).join("\n");
+    download(`${st.name.replace(/\.dxf$/i,"")}_hinge.svg`,
+`<svg xmlns="http://www.w3.org/2000/svg" width="${W.toFixed(1)}mm" height="${H.toFixed(1)}mm" viewBox="0 0 ${W.toFixed(1)} ${H.toFixed(1)}">
+<!-- lattice-hinge-designer Rev.G | 合成輸出 | 藍=原圖 紅=新增鉸鏈切線 -->
+<g fill="none" stroke="#0000FF" stroke-width="0.1">${mk(st.lines)}</g>
+<g fill="none" stroke="#FF0000" stroke-width="0.1">${mk(g.segs)}</g>
+</svg>`,"image/svg+xml");
   });
   $("dlAll").addEventListener("click",()=>{
     const c=lastCalc;
