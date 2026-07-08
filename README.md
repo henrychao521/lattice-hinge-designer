@@ -39,6 +39,11 @@
 
 ## 修訂紀錄
 
+- **Rev.I (2026-07-09)** — DXF 相容性修正（Illustrator 開不起來）:
+  - 原極簡 DXF（僅 HEADER+ENTITIES）雷射軟體能讀,但 Illustrator 解析嚴格、缺 TABLES 區段直接報錯
+  - 改為完整 R12 骨架:$ACADVER(AC1009)/$EXTMIN/$EXTMAX + TABLES（LTYPE/LAYER/STYLE 表,含全部圖層定義）+ BLOCKS + ENTITIES,CRLF 換行
+  - 三個匯出點（主圖樣/變半徑/佈線合成）共用同一 dxfDoc 產生器;四種輸出經 ezdxf 稽核 0 錯誤
+  - 注意:R12 無單位欄位,Illustrator 開啟對話框請選公釐、原始大小;LightBurn 匯入單位設 mm
 - **Rev.H (2026-07-07)** — 3D 彎折模擬:
   - 純手寫 canvas 3D 渲染（零外部函式庫）:平板—圓弧—平板可展曲面,依推論結果 W/R/Θ 即時成形
   - 拖曳旋轉視角、彎折程度滑桿（0→Θ 展開動畫）,切割線同步貼合曲面

@@ -161,6 +161,19 @@
     </div>
   </div>
 
+  <div class="round">
+    <div class="round-head"><span class="rev">Rev.I</span><h2>DXF 相容性：Illustrator 開不起來</h2><span class="commit">2026-07-09</span></div>
+    <div class="round-body">
+      <div class="q"><span class="who">USER</span>我剛剛輸出 DXF，並透過 Illustrator 開啟，但他顯示錯誤無法開啟。</div>
+      <div class="sec"><b class="tag">分析與修正</b><ul>
+        <li class="bug">原輸出是「極簡 DXF」（只有 HEADER＋ENTITIES）——雷射軟體通常寬容能讀，但 <b>Illustrator 解析嚴格：缺 TABLES 區段（LTYPE/LAYER/STYLE 表）與 $ACADVER 就拒開</b>。</li>
+        <li class="fix">改為完整標準 R12 骨架：$ACADVER(AC1009)、$EXTMIN/$EXTMAX、TABLES 三表（含全部圖層定義）、BLOCKS、ENTITIES，CRLF 換行；三個匯出點共用同一 <code>dxfDoc</code> 產生器。</li>
+        <li>驗證：四種輸出（直線/波浪貝茲展開/長孔圓弧展開/變半徑）以 ezdxf 稽核全數 0 錯誤 0 修正。</li>
+      </ul></div>
+      <div class="lesson"><b>教訓：</b>「格式驗證器通過」≠「目標軟體能開」——寬容的解析器（雷射軟體）會縱容缺漏，嚴格的（Illustrator）才逼你把規格補齊。跨軟體交換檔要以最嚴格的消費端為準。</div>
+    </div>
+  </div>
+
   <footer>
     <b>方法論小結</b>：①AI 產出必逐項驗證（手算核對公式、極端參數測邊界）；②「會不會切斷」這類物理問題用像素化淹水填充直接證明，不靠推理；③AI 生成器的新版本會讓舊修正回歸，合併前重查；④宣稱的文獻對照（如「Fenner 論文基準」）先查證再引用，避免循環論證。<br>
     工具：<a href="./">格狀鉸鏈設計推論系統</a> · 原始碼：<a href="https://github.com/henrychao521/lattice-hinge-designer">github.com/henrychao521/lattice-hinge-designer</a> · MIT License
