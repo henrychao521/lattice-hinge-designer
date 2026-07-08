@@ -169,7 +169,12 @@
         <li class="bug">原輸出是「極簡 DXF」（只有 HEADER＋ENTITIES）——雷射軟體通常寬容能讀，但 <b>Illustrator 解析嚴格：缺 TABLES 區段（LTYPE/LAYER/STYLE 表）與 $ACADVER 就拒開</b>。</li>
         <li class="fix">改為完整標準 R12 骨架：$ACADVER(AC1009)、$EXTMIN/$EXTMAX、TABLES 三表（含全部圖層定義）、BLOCKS、ENTITIES，CRLF 換行；三個匯出點共用同一 <code>dxfDoc</code> 產生器。</li>
         <li>驗證：四種輸出（直線/波浪貝茲展開/長孔圓弧展開/變半徑）以 ezdxf 稽核全數 0 錯誤 0 修正。</li>
+        <li class="fix"><b>使用者實測確認（2026-07-09 00:58）</b>：Adobe Illustrator 2026 成功開啟變半徑輸出 <code>variable_radius_t3_124cols.dxf</code>——OUTLINE／CUT 圖層正確分層、124 欄漸變間距切線完整呈現。</li>
       </ul></div>
+      <div class="fig" style="background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:12px">
+        <img src="assets/revI-illustrator-verify.jpg" alt="Illustrator 2026 成功開啟變半徑 DXF" style="display:block;width:100%;height:auto;border-radius:6px">
+        <div style="font-size:.75rem;color:var(--dim);margin-top:8px;text-align:center">驗證截圖 — Illustrator 2026 開啟 variable_radius_t3_124cols.dxf，右側圖層面板可見 OUTLINE / CUT 正確分層</div>
+      </div>
       <div class="lesson"><b>教訓：</b>「格式驗證器通過」≠「目標軟體能開」——寬容的解析器（雷射軟體）會縱容缺漏，嚴格的（Illustrator）才逼你把規格補齊。跨軟體交換檔要以最嚴格的消費端為準。</div>
     </div>
   </div>

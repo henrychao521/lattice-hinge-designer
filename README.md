@@ -43,6 +43,7 @@
   - 原極簡 DXF（僅 HEADER+ENTITIES）雷射軟體能讀,但 Illustrator 解析嚴格、缺 TABLES 區段直接報錯
   - 改為完整 R12 骨架:$ACADVER(AC1009)/$EXTMIN/$EXTMAX + TABLES（LTYPE/LAYER/STYLE 表,含全部圖層定義）+ BLOCKS + ENTITIES,CRLF 換行
   - 三個匯出點（主圖樣/變半徑/佈線合成）共用同一 dxfDoc 產生器;四種輸出經 ezdxf 稽核 0 錯誤
+  - **已實測確認**:Illustrator 2026 成功開啟變半徑輸出（OUTLINE/CUT 分層正確,驗證截圖見 dev-log Rev.I 節）
   - 注意:R12 無單位欄位,Illustrator 開啟對話框請選公釐、原始大小;LightBurn 匯入單位設 mm
 - **Rev.H (2026-07-07)** — 3D 彎折模擬:
   - 純手寫 canvas 3D 渲染（零外部函式庫）:平板—圓弧—平板可展曲面,依推論結果 W/R/Θ 即時成形
