@@ -411,7 +411,7 @@
 <div class="wrap">
   <header>
     <div class="eyebrow">Laser Kerf Bending · Torsional Link Model</div>
-    <h1>格狀鉸鏈設計推論系統<span class="en">LATTICE HINGE DESIGN CALCULATOR — Rev.I</span></h1>
+    <h1>格狀鉸鏈設計推論系統<span class="en">LATTICE HINGE DESIGN CALCULATOR — Rev.J</span></h1>
     <p class="sub">依據 Patrick Fenner（Deferred Procrastination, 2011–2012）的扭轉連桿模型：輸入材料與幾何參數，反推最少連桿數、彎折半徑與應力狀態，並產生可直接雷射切割的 SVG 檔。</p>
   </header>
 
@@ -669,13 +669,30 @@ const $ = id=>document.getElementById(id);
 let currentPattern = "straight";
 let lastCalc = null;
 
+// 參數不合法或超出範圍時，明確告知並停掉匯出，避免使用者拿到與畫面不符的切割檔
+function setCalcBlocked(msg){
+  const F=document.getElementById("flags");
+  if(F) F.innerHTML=`<div class="flag bad"><span class="dot"></span><span>${msg}</span></div>`;
+  ["dl","dlDxf","dlAll","dlCoupon","dlVar","dlVarDxf"].forEach(id=>{
+    const b=document.getElementById(id); if(b) b.disabled=true;
+  });
+}
+function clearCalcBlock(){
+  ["dl","dlDxf","dlAll","dlCoupon","dlVar","dlVarDxf"].forEach(id=>{
+    const b=document.getElementById(id); if(b) b.disabled=false;
+  });
+}
 function calc(){
   const t=+$("t").value, w=+$("w").value, l=+$("l").value,
         k=+$("kerf").value, G=+$("G").value, tauY=+$("tau").value,
         r=+$("ratio").value/100, ThetaDeg=+$("theta").value, H=+$("H").value,
         auxA=+$("auxA").value, auxH=+$("auxH").value;
-  // 欄位清空或非法值時不計算，保留上一次有效結果
-  if(![t,w,l,k,G,tauY,ThetaDeg,H,auxA,auxH].every(v=>Number.isFinite(v)&&v>0)) return;
+  // 欄位清空或非法值時不計算。原本靜默保留上一次結果，畫面上的數字會跟輸入對不起來，
+  // 學生還能照那組舊數字匯出切割檔；改成明說並停用匯出。
+  if(![t,w,l,k,G,tauY,ThetaDeg,H,auxA,auxH].every(v=>Number.isFinite(v)&&v>0)){
+    setCalcBlocked("請填入有效的正值（板厚、鏈寬、鏈長、切縫、角度、高度皆需 > 0）。");
+    return;
+  }
   const eta=+$("eta").value/100;     // 切邊熱影響折減
   const Theta=ThetaDeg*Math.PI/180;
   const tauA=tauY*r*eta;
@@ -692,6 +709,12 @@ function calc(){
   const nGeo = Math.ceil(Theta/Math.max(thetaGeo,1e-6));
 
   const n = Math.max(nStress,nGeo,2);
+  // 角度或尺寸被打成極端值時 n 會爆成上億，產生預覽的字串會把分頁卡死
+  // （實測 Θ=1e9 無限凍結、H=1e7 丟 RangeError）。超出可切範圍就直接擋下。
+  if(!Number.isFinite(n) || n > 5000){
+    setCalcBlocked(`參數超出可切範圍：算出 ${Number.isFinite(n)?n.toLocaleString():"無限大"} 道切縫。請縮小彎曲角度或加大鏈寬／切縫。`);
+    return;
+  }
   const thetaAct = Theta/n;
   const tauAct = thetaAct*beta*b*G/(alpha*l);
 
@@ -701,6 +724,7 @@ function calc(){
 
   lastCalc={t,w,l,k,G,tauY,tauA,r,eta,ThetaDeg,Theta,H,alpha,beta,auxA,auxH,
             thetaStress,nStress,thetaGeo,nGeo,n,thetaAct,tauAct,W,Rc,Rin,Rout};
+  clearCalcBlock();
   render();
 }
 
@@ -906,7 +930,7 @@ function svgDoc(pat,c,forLaser){
       <text x="${x0+c.W/2}" y="${H+11}" font-size="4.2" fill="#6FC7FF" text-anchor="middle" font-family="IBM Plex Mono,monospace">W = ${fmt(c.W)} mm · n = ${c.n} · R_in = ${fmt(c.Rin)} mm</text>`;
   }
   const border=`<rect x="0.2" y="0.2" width="${totalW-0.4}" height="${H-0.4}" fill="none" stroke="${forLaser?"#0000FF":"rgba(158,197,255,.5)"}" stroke-width="${sw}"/>`;
-  const meta=forLaser?`<!-- lattice-hinge-designer Rev.C | pattern=${pat} | t=${c.t} w=${c.w} l=${c.l} k=${c.k} mm | n=${c.n} Theta=${c.ThetaDeg}deg | G=${c.G}MPa tau_allow=${c.tauA.toFixed(1)}MPa | W=${c.W.toFixed(1)} R_in=${c.Rin.toFixed(1)} R_out=${c.Rout.toFixed(1)} mm | red=cut blue=outline -->
+  const meta=forLaser?`<!-- lattice-hinge-designer Rev.J | pattern=${pat} | t=${c.t} w=${c.w} l=${c.l} k=${c.k} mm | n=${c.n} Theta=${c.ThetaDeg}deg | G=${c.G}MPa tau_allow=${c.tauA.toFixed(1)}MPa | W=${c.W.toFixed(1)} R_in=${c.Rin.toFixed(1)} R_out=${c.Rout.toFixed(1)} mm | red=cut blue=outline -->
 `:"";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}mm" height="${forLaser?H:H+14}mm" viewBox="0 ${forLaser?0:-2} ${totalW} ${forLaser?H:H+16}">
     ${meta}${extra}${border}
@@ -1107,7 +1131,7 @@ function varSvg(forLaser){
   const c=lastCalc,v=varData;
   const {cuts,W,H}=buildVarCuts();
   const stroke=forLaser?"#FF0000":"#FF6B57",sw=forLaser?0.1:0.35;
-  const meta=forLaser?`<!-- lattice-hinge-designer Rev.C | pattern=variable-radius | t=${c.t} w=${c.w} l=${c.l} k=${c.k} mm | cols=${v.cols.length} L=${v.L.toFixed(1)}mm | G=${c.G}MPa tau_allow=${c.tauA.toFixed(1)}MPa | red=cut blue=outline -->
+  const meta=forLaser?`<!-- lattice-hinge-designer Rev.J | pattern=variable-radius | t=${c.t} w=${c.w} l=${c.l} k=${c.k} mm | cols=${v.cols.length} L=${v.L.toFixed(1)}mm | G=${c.G}MPa tau_allow=${c.tauA.toFixed(1)}MPa | red=cut blue=outline -->
 `:"";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W.toFixed(1)}mm" height="${H}mm" viewBox="0 0 ${W.toFixed(1)} ${H}">
     ${meta}${forLaser?"":`<rect width="${W.toFixed(1)}" height="${H}" fill="#152C4E"/>`}
@@ -1433,7 +1457,7 @@ function couponSvg(){
   }
   const totalW=hx+5*pitch+12;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalW.toFixed(1)}mm" height="${CH}mm" viewBox="0 0 ${totalW.toFixed(1)} ${CH}">
-    <!-- lattice-hinge-designer Rev.D | kerf 校正試片 | 用法: 1) 量方孔寬-落下方塊寬, 差值/2=實際 kerf 回填 k
+    <!-- lattice-hinge-designer Rev.J | kerf 校正試片 | 用法: 1) 量方孔寬-落下方塊寬, 差值/2=實際 kerf 回填 k
          2) 徒手彎折右側迷你鉸鏈檢查強度與碳化 | t=${c.t} w=${c.w} l=${c.l} k(目前)=${c.k} mm | red=cut blue=outline -->
     <rect x="0.2" y="0.2" width="${(totalW-0.4).toFixed(1)}" height="${CH-0.4}" fill="none" stroke="#0000FF" stroke-width="0.1"/>
     <g fill="none" stroke="#FF0000" stroke-width="0.1" stroke-linecap="round">
@@ -1481,6 +1505,9 @@ function dxfDoc(segs){
   const L=[]; const w=(...v)=>L.push(...v);
   w("0","SECTION","2","HEADER");
   w("9","$ACADVER","1","AC1009");
+  // 一定要寫 $INSUNITS=4（mm）：沒有它時多數雷切/CAD 軟體會依自己的預設猜單位，
+  // 猜成英吋就會把 100 mm 的鉸鏈開成 2540 mm。本頁的匯入分析也正是用這個欄位判斷。
+  w("9","$INSUNITS","70","4");
   w("9","$INSBASE","10","0.0","20","0.0","30","0.0");
   w("9","$EXTMIN","10",x0.toFixed(3),"20",y0.toFixed(3),"30","0.0");
   w("9","$EXTMAX","10",x1.toFixed(3),"20",y1.toFixed(3),"30","0.0");
@@ -1652,7 +1679,7 @@ function init(){
       return `<line x1="${a}" y1="${b}" x2="${c2}" y2="${d}"/>`;}).join("\n");
     download(`${st.name.replace(/\.dxf$/i,"")}_hinge.svg`,
 `<svg xmlns="http://www.w3.org/2000/svg" width="${W.toFixed(1)}mm" height="${H.toFixed(1)}mm" viewBox="0 0 ${W.toFixed(1)} ${H.toFixed(1)}">
-<!-- lattice-hinge-designer Rev.G | 合成輸出 | 藍=原圖 紅=新增鉸鏈切線 -->
+<!-- lattice-hinge-designer Rev.J | 合成輸出 | 藍=原圖 紅=新增鉸鏈切線 -->
 <g fill="none" stroke="#0000FF" stroke-width="0.1">${mk(st.lines)}</g>
 <g fill="none" stroke="#FF0000" stroke-width="0.1">${mk(g.segs)}</g>
 </svg>`,"image/svg+xml");
